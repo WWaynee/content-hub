@@ -25,6 +25,7 @@ type Config struct {
 	Log        Log
 	Chunk      Chunk
 	Retrieval  Retrieval
+	RateLimit  RateLimit
 }
 
 type Server struct {
@@ -101,6 +102,14 @@ type Chunk struct {
 
 type Retrieval struct {
 	TopK int
+}
+
+type RateLimit struct {
+	TenantPerMin int
+	UserPerMin   int
+	NotePerMin   int
+	WindowSec    int
+	KeyTTLSec    int
 }
 
 var cfg Config
@@ -195,6 +204,14 @@ func Load() (*Config, error) {
 	}
 
 	c.Retrieval = Retrieval{TopK: envIntDefault("KBE_TOP_K", 20)}
+
+	c.RateLimit = RateLimit{
+		TenantPerMin: envIntDefault("RL_TENANT_PER_MIN", 120),
+		UserPerMin:   envIntDefault("RL_USER_PER_MIN", 60),
+		NotePerMin:   envIntDefault("RL_NOTE_PER_MIN", 20),
+		WindowSec:    envIntDefault("RL_WINDOW_SEC", 60),
+		KeyTTLSec:    envIntDefault("RL_KEY_TTL_SEC", 120),
+	}
 
 	cfg = c
 	return &c, nil
