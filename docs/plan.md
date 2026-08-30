@@ -19,14 +19,14 @@
 - [x] 项目目录骨架（按 architecture.md §14）+ `.gitignore` 加固（.env/data 不入库）
 - [x] 中间件连通验证（MySQL content_hub 库 / Redis PONG / RabbitMQ ping / Qdrant Up）
 
-## 阶段 2 · 数据表落库（下一步）
+## 阶段 2 · 数据表落库（已完成 ✅）
 
-- [ ] 编写 GORM model（18 张表：tenants/users/kbase_dirs/kbase_files/doc_versions/doc_chunks/doc_sentences/workspaces/requirements/requirement_scope/articles/article_versions/article_sentences/evidence_bindings/conversations/conversation_messages/agent_tasks/audit_logs）
-- [ ] `cmd/migrate` 迁移工具 + 建表（含唯一索引/联合索引 per db.md）
-- [ ] 验证 18 张表在 content_hub 库生成
-- [ ] `docs/architecture/db.md` 索引与模型核对
+- [x] 编写 GORM model（18 张表：tenants/users/kbase_dirs/kbase_files/doc_versions/doc_chunks/doc_sentences/workspaces/requirements/requirement_scope/articles/article_versions/article_sentences/evidence_bindings/conversations/conversation_messages/agent_tasks/audit_logs）
+- [x] `cmd/migrate` 迁移工具 + 建表（含唯一索引/联合索引 per db.md）
+- [x] 验证 18 张表在 content_hub 库生成
+- [x] `docs/architecture/db.md` 索引与模型核对（字段/类型/默认值/索引已通过 information_schema 逐表核对无误）
 
-## 阶段 3 · 账号与鉴权模块
+## 阶段 3 · 账号与鉴权模块（下一步）
 
 - [ ] 基础中间件：trace / recovery / logger(结构化含trace) / cors / response / validator
 - [ ] 租户/用户 model + storage（TenantID 强隔离）
