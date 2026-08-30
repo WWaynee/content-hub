@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 
 	"github.com/joho/godotenv"
@@ -105,7 +107,7 @@ var cfg Config
 
 // Load 读取 .env 并解析到全局 Config。可被 api/worker/migrate 复用。
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	loadEnvFile()
 
 	c := Config{}
 	var err error
@@ -227,4 +229,40 @@ func envInt(key string, def int) (int, error) {
 		return n, nil
 	}
 	return def, nil
+}
+
+// loadEnvFile 加载项目根目录的 .env（优先），回退到当前工作目录的 .env。
+// 通过 config.go 自身位置向上查找 go.mod，得到项目根，避免依赖 cwd。
+func loadEnvFile() {
+	root := projectRoot()
+	if root != "" {
+		envPath := filepath.Join(root, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			_ = godotenv.Load(envPath)
+			return
+		}
+	}
+	// 回退：cwd 下的 .env
+	_ = godotenv.Load()
+}
+
+// projectRoot 返回包含 go.mod 的项目根目录；找不到返回空串。
+func projectRoot() string {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	dir := filepath.Dir(thisFile) // <root>/config
+	// 向上最多 5 层找 go.mod
+	for i := 0; i < 5; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
