@@ -1,0 +1,48 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: content-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PWD}
+      MYSQL_DATABASE: ${MYSQL_DB}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    command: ["mysqld", "--default-authentication-plugin=mysql_native_password"]
+    restart: always
+
+  redis:
+    image: redis:7
+    container_name: content-redis
+    env_file: .env
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    restart: always
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: content-qdrant
+    ports:
+      - "${QDRANT_PORT}:6333"
+      - "${QDRANT_GRPC_PORT}:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    restart: always
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: content-rabbitmq
+    env_file: .env
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    restart: always

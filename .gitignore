@@ -15,6 +15,18 @@
 # Dependency directories
 /vendor/
 
+# ---------- 敏感配置（禁止提交） ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Docker 本地持久化数据（运行时生成，不入库） ----------
+/data/
+
+# 日志
+/logs/
+*.log
+
 # IDE
 .idea/
 .vscode/
