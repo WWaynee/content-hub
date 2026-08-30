@@ -18,6 +18,8 @@ type Client interface {
 	Embed(ctx context.Context, input string) ([]float32, error)
 	EmbedBatch(ctx context.Context, inputs []string) ([][]float32, error)
 	Chat(ctx context.Context, messages []ChatMessage) (string, error)
+	// ChatWithJSON 发送对话并要求严格 JSON，解析进 target（多 agent 结构化输出用）。
+	ChatWithJSON(ctx context.Context, messages []ChatMessage, target interface{}) error
 }
 
 // ChatMessage 对话消息。
@@ -28,13 +30,14 @@ type ChatMessage struct {
 
 // OpenAIClient OpenAI 兼容实现。
 type OpenAIClient struct {
-	chatModel     string
-	embedModel    string
-	embedBaseURL  string
-	embedAPIKey   string
-	httpClient    *http.Client
-	timeout       time.Duration
-	maxRetries    int
+	chatModel    string
+	embedModel   string
+	embedBaseURL string
+	embedAPIKey  string
+	httpClient   *http.Client
+	timeout      time.Duration
+	maxRetries   int
+	cb           *CircuitBreaker
 }
 
 // NewClient 构造客户端（对话走 LLM 配置，向量走 Embedding 配置）。
@@ -56,6 +59,7 @@ func NewClient() Client {
 		httpClient:   &http.Client{},
 		timeout:      time.Duration(cfg.LLM.TimeoutSeconds) * time.Second,
 		maxRetries:   cfg.LLM.MaxRetry,
+		cb:           NewCircuitBreaker(CircuitBreakerConfig{}),
 	}
 }
 
@@ -70,7 +74,11 @@ func (c *OpenAIClient) doPost(ctx context.Context, url, apiKey string, payload [
 
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if !c.cb.allow() {
+			return nil, ErrCircuitOpen
+		}
 		body, err := c.singlePost(deadlineCtx, url, apiKey, payload)
+		c.cb.record(err == nil)
 		if err == nil {
 			return body, nil
 		}
