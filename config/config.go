@@ -189,7 +189,7 @@ func Load() (*Config, error) {
 		Endpoint:        envStr("OSS_ENDPOINT", ""),
 		AccessKeyID:     envStr("OSS_ACCESS_KEY_ID", ""),
 		AccessKeySecret: envStr("OSS_ACCESS_KEY_SECRET", ""),
-		Bucket:          envStr("OSS_BUCKET", "content-hub-file"),
+		Bucket:          envStr("OSS_BUCKET", "my-content-hub"),
 	}
 
 	c.Log = Log{
