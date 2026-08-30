@@ -26,16 +26,16 @@
 - [x] 验证 18 张表在 content_hub 库生成
 - [x] `docs/architecture/db.md` 索引与模型核对（字段/类型/默认值/索引已通过 information_schema 逐表核对无误）
 
-## 阶段 3 · 账号与鉴权模块（下一步）
+## 阶段 3 · 账号与鉴权模块（已完成 ✅）
 
-- [ ] 基础中间件：trace / recovery / logger(结构化含trace) / cors / response / validator
-- [ ] 租户/用户 model + storage（TenantID 强隔离）
-- [ ] bcrypt 密码 + JWT 签发/解析（最小载荷 user_id/tenant_id/role）
-- [ ] 注册/登录/鉴权中间件 + 私有路由组
-- [ ] Redis 限流（滑动窗口）+ 操作审计日志（audit_logs）
-- [ ] 初始化脚本 / smoke 测试（多租户隔离对抗验证）
+- [x] 基础中间件：trace / recovery / logger(结构化含trace) / cors / response / validator
+- [x] 租户/用户 model + storage（TenantID 强隔离）
+- [x] bcrypt 密码 + JWT 签发/解析（最小载荷 user_id/tenant_id/role）
+- [x] 注册/登录/鉴权中间件 + 私有路由组
+- [x] Redis 限流（滑动窗口）+ 操作审计日志（audit_logs，trace 贯穿）
+- [x] 初始化脚本 / smoke 测试（多租户隔离对抗验证）
 
-## 阶段 4 · 知识库 kbase 模块
+## 阶段 4 · 知识库 kbase 模块（下一步）
 
 - [ ] 目录树（公有/私有，递归）kbase_dirs CRUD + 权限（读写分离）
 - [ ] 文档上传/下载/预览（阿里云 OSS，物理扁平 + 目录逻辑映射）

@@ -48,8 +48,10 @@ func RegisterTenant(ctx context.Context, name, adminUsername, adminPassword stri
 	if err != nil {
 		return nil, "", err
 	}
-	observability.WithContext(ctx).Info("注册租户",
+	auditCtx := observability.WithTenantUser(ctx, u.TenantID, u.ID)
+	observability.WithContext(auditCtx).Info("注册租户",
 		map[string]interface{}{"operation": "register_tenant", "tenant_id": u.TenantID})
+	RecordAudit(auditCtx, "register_tenant", "注册租户: "+name)
 	return u, token, nil
 }
 
@@ -70,8 +72,10 @@ func Login(ctx context.Context, tenantID uint64, username, password string) (*mo
 	if err != nil {
 		return nil, "", err
 	}
-	observability.WithContext(observability.WithTenantUser(ctx, u.TenantID, u.ID)).Info("用户登录",
+	auditCtx := observability.WithTenantUser(ctx, u.TenantID, u.ID)
+	observability.WithContext(auditCtx).Info("用户登录",
 		map[string]interface{}{"operation": "login"})
+	RecordAudit(auditCtx, "login", "用户登录: "+username)
 	return u, token, nil
 }
 
@@ -93,7 +97,9 @@ func RegisterMember(ctx context.Context, tenantID uint64, username, password str
 	if err := storage.CreateUser(storage.GetDB(), u); err != nil {
 		return nil, err
 	}
-	observability.WithContext(observability.WithTenantUser(ctx, tenantID, u.ID)).Info("注册工作人员",
+	auditCtx := observability.WithTenantUser(ctx, tenantID, u.ID)
+	observability.WithContext(auditCtx).Info("注册工作人员",
 		map[string]interface{}{"operation": "register_member"})
+	RecordAudit(auditCtx, "register_member", "注册工作人员: "+username)
 	return u, nil
 }

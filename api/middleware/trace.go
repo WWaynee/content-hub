@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/WWaynee/content-hub/observability"
 )
 
 const TraceIDHeader = "X-Trace-Id"
@@ -19,7 +21,8 @@ func Trace() gin.HandlerFunc {
 		}
 		c.Set("trace_id", traceID)
 		c.Header(TraceIDHeader, traceID)
-		c.Writer.Header().Set(TraceIDHeader, traceID)
+		// 种进标准 ctx，供 observability 与审计读取
+		c.Request = c.Request.WithContext(observability.WithTraceID(c.Request.Context(), traceID))
 		c.Next()
 	}
 }
