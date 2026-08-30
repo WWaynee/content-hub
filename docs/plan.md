@@ -34,6 +34,7 @@
 - [x] 注册/登录/鉴权中间件 + 私有路由组
 - [x] Redis 限流（滑动窗口）+ 操作审计日志（audit_logs，trace 贯穿）
 - [x] 初始化脚本 / smoke 测试（多租户隔离对抗验证）
+- [x] 单元测试（util JWT/bcrypt + middleware 鉴权 + service 注册登录集成测试）
 
 ## 阶段 4 · 知识库 kbase 模块（下一步）
 
