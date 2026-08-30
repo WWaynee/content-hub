@@ -36,17 +36,17 @@
 - [x] 初始化脚本 / smoke 测试（多租户隔离对抗验证）
 - [x] 单元测试（util JWT/bcrypt + middleware 鉴权 + service 注册登录集成测试）
 
-## 阶段 4 · 知识库 kbase 模块（下一步）
+## 阶段 4 · 知识库 kbase 模块（完成 ✅，MQ 异步待补）
 
-- [ ] 目录树（公有/私有，递归）kbase_dirs CRUD + 权限（读写分离）
-- [ ] 文档上传/下载/预览（阿里云 OSS，物理扁平 + 目录逻辑映射）
-- [ ] 文档版本（doc_versions，只增不减、latest 指针、md5）
-- [ ] 上传覆盖选择 + 乐观锁兜底 + 上传/解析失败兜底语义
-- [ ] 文档切片 splitter（structured → 自然段 → 软300字 → 完整句末截断）
-- [ ] 向量化入库 worker（RabbitMQ document_parse 队列 + Redis 状态 + Qdrant payload）
-- [ ] Qdrant 检索（按租户 collection/payload 隔离 + latest + 勾选范围 document_ids 过滤，top-K=20）
+- [x] 目录树（公有/私有，递归）kbase_dirs CRUD + 权限（读写分离）
+- [x] 文档上传/下载/预览（阿里云 OSS，物理扁平 + 目录逻辑映射）
+- [x] 文档版本（doc_versions，只增不减、latest 指针、md5）
+- [x] 上传覆盖选择 + 乐观锁兜底 + 上传/解析失败兜底语义
+- [x] 文档切片 splitter（structured → 自然段 → 软300字 → 完整句末截断）
+- [~] 向量化入库 worker（当前同步 ProcessDocument；RabbitMQ document_parse 异步队列待阶段5接 MQ）
+- [x] Qdrant 检索（按租户 collection/payload 隔离 + latest + 勾选范围 document_ids 过滤，top-K=20）
 
-## 阶段 5 · 多 Agent 编排（核心）
+## 阶段 5 · 多 Agent 编排（核心，下一步）
 
 - [ ] llmclient 封装（DeepSeek Chat + 硅基流动 Embedding、超时/退避/熔断、ChatWithJSON）
 - [ ] 知识检索 agent（ReAct + toolkit：knowledge_retrieve/list_documents/search_documents/get_document_content，限定勾选范围）
