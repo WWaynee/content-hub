@@ -46,22 +46,25 @@
 - [~] 向量化入库 worker（当前同步 ProcessDocument；RabbitMQ document_parse 异步队列待阶段5接 MQ）
 - [x] Qdrant 检索（按租户 collection/payload 隔离 + latest + 勾选范围 document_ids 过滤，top-K=20）
 
-## 阶段 5 · 多 Agent 编排（核心，下一步）
+## 阶段 5 · 多 Agent 编排（核心）
 
-- [ ] llmclient 封装（DeepSeek Chat + 硅基流动 Embedding、超时/退避/熔断、ChatWithJSON）
-- [ ] 知识检索 agent（ReAct + toolkit：knowledge_retrieve/list_documents/search_documents/get_document_content，限定勾选范围）
-- [ ] 稿件撰写 agent（结构化生成 Article，句级证据绑定，用户未指定不改）
-- [ ] 证据整理 agent（格式化证据清单，不重检）
-- [ ] 需求对话 agent（对话 A 需求单改字段 / 对话 B 修订意图解析，target 锚点）
-- [ ] Orchestrator（generation / revision 两种工作流，编排派活，trace 贯穿）
+- [x] llmclient 封装（DeepSeek Chat + 硅基流动 Embedding、超时/退避/熔断、ChatWithJSON）
+- [x] 知识检索 agent（方案乙：LLM 提炼 query → 单次 SearchKbase → 去重汇总，限定勾选范围）
+- [x] 稿件撰写 agent（结构化生成 Article，句级证据绑定）
+- [x] 证据整理 agent（格式化证据清单，不重检）
+- [~] 需求对话 agent：已实现"自然语言→结构化操作"骨架；待升级为「统一入口 + DialoguePlan 多动作计划 + 字段白名单硬拦截」（见阶段6）
+- [x] Orchestrator（generation 工作流已跑通；revision 编排待阶段6）
 
-## 阶段 6 · 工作区 / 需求单 / 稿件 / 会话 / 导出
+## 阶段 6 · 工作区 / 需求单 / 稿件 / 会话 / 导出（下一步）
 
 - [ ] workspaces CRUD（本人可见、首页倒序检索）
-- [ ] requirements CRUD（基础字段 + 任务要求 + requirement_scope 活引用递归展开）
+- [ ] requirements CRUD（基础字段 + 任务要求 + requirement_scope 活引用递归展开 + version 字段）
+- [ ] 新增 retrieval_batches 表（检索快照：doc_sentence 指针 + requirement_version）
+- [ ] 对话 agent 升级：统一入口 + DialoguePlan（动作计划）+ 字段白名单硬拦截 + JSON Schema 机检
 - [ ] 稿件生成工作流接入（generation：需求→检索→撰写→证据→快照完成态）
-- [ ] 段落/句子 AI 修订（revision：对话→Orchestrator→检索/撰写/证据重建，未动句继承）
-- [ ] 会话模型（conversations + conversation_messages，target 锚点，完整时间线）
+- [ ] 段落/句子 AI 修订（revision：对话派发→检索/撰写/证据重建，未动句继承）
+- [ ] 惰性失效：需求单 version + retrieval_batch 过期判定（version 变化后禁止局部修订，先全量重生成）
+- [ ] 会话模型（conversations + conversation_messages 存 action plan JSON，target 锚点，阶段私有）
 - [ ] 稿件快照/版本与导出状态机（初稿即完成态/N次修改完成态/修改中禁导）
 - [ ] 导出（合并 md：正文在前 + 证据清单在后 + 证据整理 agent 格式化）
 
