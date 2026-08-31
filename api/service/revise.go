@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/WWaynee/content-hub/agent"
+	"github.com/WWaynee/content-hub/llmclient"
 	"github.com/WWaynee/content-hub/storage"
 	"github.com/WWaynee/content-hub/storage/model"
 )
@@ -154,4 +155,100 @@ func buildContentFromDrafts(drafts []sentDraft) string {
 		sb.WriteString(d.content)
 	}
 	return sb.String()
+}
+
+// ReviseSentenceFull 句子级修订的完整链路：读当前稿件 → LLM 重写目标句 → 被改句重检测证据 → 落新快照。
+// 这是 revision 的"对话→重写→落库"最后一环。
+func ReviseSentenceFull(ctx context.Context, tenantID, workspaceID uint64, targetIndex int, instruction string) (uint64, error) {
+	// 1. 读当前稿件句子
+	a, err := storage.GetArticleByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("稿件不存在")
+	}
+	prev, err := storage.GetLatestArticleVersion(ctx, a.ID)
+	if err != nil {
+		return 0, fmt.Errorf("稿件版本不存在")
+	}
+	sents, err := storage.ListArticleSentences(ctx, prev.ID)
+	if err != nil {
+		return 0, err
+	}
+	if targetIndex < 0 || targetIndex >= len(sents) {
+		return 0, fmt.Errorf("目标句子序号越界: %d", targetIndex)
+	}
+	targetText := sents[targetIndex].Content
+
+	// 2. 读需求单 + 勾选范围
+	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("需求单不存在")
+	}
+	fileIDs, err := RequirementFileIDScope(ctx, tenantID, req.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	// 3. LLM 重写目标句（带原句 + 上下文）
+	newText, err := rewriteSentenceLLM(ctx, targetText, instruction)
+	if err != nil {
+		return 0, err
+	}
+
+	// 4. 被改句重检测证据（方案甲：对新句内容在勾选范围内重新检索）
+	hits, err := SearchKbaseSentences(ctx, tenantID, newText, fileIDs...)
+	if err != nil {
+		return 0, err
+	}
+	newEvidence := hitsToEvidence(hits)
+
+	// 5. 落新快照（未动句继承，被改句换新文本 + 新证据）
+	// 新证据的 refs：取前几条作为绑定（一期简化：全部命中都可绑，但限制最多前 3 条）
+	refs := make([]uint64, 0, len(newEvidence))
+	for i := range newEvidence {
+		if i >= 3 {
+			break
+		}
+		refs = append(refs, uint64(i))
+	}
+	return ApplyArticleRevision(ctx, ReviseSentenceInput{
+		WorkspaceID:     workspaceID,
+		TenantID:        tenantID,
+		TargetIndex:     targetIndex,
+		NewText:         newText,
+		NewEvidence:     newEvidence,
+		NewEvidenceRefs: refs,
+	})
+}
+
+// rewriteSentenceLLM 调 LLM 重写单个句子（带原句 + 修改要求）。
+func rewriteSentenceLLM(ctx context.Context, originalText, instruction string) (string, error) {
+	llm := llmclient.NewClient()
+	prompt := fmt.Sprintf("请重写下面这句话，满足修改要求。\n\n原句：%s\n修改要求：%s\n\n只返回 JSON：{\"text\":\"重写后的句子\"}", originalText, instruction)
+	var out struct {
+		Text string `json:"text"`
+	}
+	if err := llm.ChatWithJSON(ctx, []llmclient.ChatMessage{{Role: "user", Content: prompt}}, &out); err != nil {
+		return "", fmt.Errorf("句子重写失败: %w", err)
+	}
+	if out.Text == "" {
+		return "", fmt.Errorf("LLM 未返回重写句子")
+	}
+	return out.Text, nil
+}
+
+// hitsToEvidence 把句子级 KbaseHit 转成 agent.Evidence。
+func hitsToEvidence(hits []KbaseHit) []agent.Evidence {
+	out := make([]agent.Evidence, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, agent.Evidence{
+			FileID:        h.FileID,
+			DocSentenceID: h.DocSentenceID,
+			ChunkID:       h.ChunkID,
+			VersionMd5:    h.VersionMd5,
+			ChapterTitle:  h.ChapterTitle,
+			SourceText:    h.SourceText,
+			Score:         h.Score,
+		})
+	}
+	return out
 }

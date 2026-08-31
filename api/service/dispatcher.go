@@ -88,10 +88,16 @@ func (d *Dispatcher) execAction(ctx context.Context, tenantID, userID, workspace
 		}
 		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("补检索命中 %d 条", len(evs))}
 
-	case "revise_article_sentence", "append_article_content":
-		// 句子级修订：一期简化——标记为已受理，真正重写+落快照由 generation 全量重做。
-		// 完整句子级 revision 落快照依赖 Reviser + 现有稿件状态，此处先给出可执行结果。
-		return ActionResult{Tool: ac.Tool, Success: true, Message: "已受理稿件修订指令（一期由全量重新生成落实）"}
+	case "revise_article_sentence":
+		// 完整句子级修订：LLM 重写目标句 + 被改句重检测证据 + 落新快照
+		if _, err := ReviseSentenceFull(ctx, tenantID, workspaceID, ac.TargetSentenceIndex, ac.Instruction); err != nil {
+			return ActionResult{Tool: ac.Tool, Success: false, Message: err.Error()}
+		}
+		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("已修订第 %d 句", ac.TargetSentenceIndex)}
+
+	case "append_article_content":
+		// 一期：追加内容按全量重新生成落实（revision 追加的完整支持后续补）
+		return ActionResult{Tool: ac.Tool, Success: false, Message: "追加段落暂未实现，请通过需求单调整后重新生成"}
 
 	default:
 		return ActionResult{Tool: ac.Tool, Success: false, Message: "未知工具 " + ac.Tool}
