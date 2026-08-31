@@ -78,6 +78,11 @@ func ProcessDocument(ctx context.Context, tenantID, fileID, versionID uint64) er
 		}
 	}
 
+	// 幂等：先清理该 file+version 已存在的切片/句子（防失败重跑撞唯一索引）
+	if err := storage.DeleteChunksAndSentencesByVersion(ctx, tenantID, fileID, ver.VersionMd5); err != nil {
+		return failVersion(ctx, versionID, fmt.Errorf("清理旧切片失败: %w", err))
+	}
+
 	// 先写切片（拿 chunk_id），再写句子
 	if err := storage.BatchCreateChunks(ctx, chunkRecords); err != nil {
 		return failVersion(ctx, versionID, fmt.Errorf("切片落库失败: %w", err))

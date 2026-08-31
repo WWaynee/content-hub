@@ -67,3 +67,18 @@ func GetSentenceByID(ctx context.Context, sentenceID uint64) (*model.DocSentence
 	}
 	return &s, nil
 }
+
+// DeleteChunksAndSentencesByVersion 删除某 file+version 的切片与句子（幂等清理，防失败重跑撞唯一索引）。
+func DeleteChunksAndSentencesByVersion(ctx context.Context, tenantID, fileID uint64, versionMd5 string) error {
+	if err := GetDB().WithContext(ctx).
+		Where("tenant_id = ? AND file_id = ? AND version_md5 = ?", tenantID, fileID, versionMd5).
+		Delete(&model.DocChunk{}).Error; err != nil {
+		return err
+	}
+	if err := GetDB().WithContext(ctx).
+		Where("tenant_id = ? AND file_id = ? AND version_md5 = ?", tenantID, fileID, versionMd5).
+		Delete(&model.DocSentence{}).Error; err != nil {
+		return err
+	}
+	return nil
+}

@@ -28,6 +28,14 @@ func main() {
 	if err := mq.InitRabbitMQ(); err != nil {
 		log.Fatalf("初始化 RabbitMQ 失败: %v", err)
 	}
+	// 连接 Qdrant（检索/生成/问答在 API 进程会用到）
+	if err := storage.InitQdrant(4096); err != nil {
+		log.Fatalf("初始化 Qdrant 失败: %v", err)
+	}
+	// 连接 OSS（上传/预览/下载在 API 进程会用到）
+	if err := storage.InitOSS(); err != nil {
+		log.Fatalf("初始化 OSS 失败: %v", err)
+	}
 
 	r := api.NewRouter()
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)

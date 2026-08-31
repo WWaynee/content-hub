@@ -8,34 +8,34 @@ import (
 
 // KbaseDir 知识库目录树（kbase 模块）
 type KbaseDir struct {
-	ID          uint64         `gorm:"column:id;primaryKey;autoIncrement"`
-	TenantID    uint64         `gorm:"column:tenant_id;not null"`
-	Scope       string         `gorm:"column:scope;size:16;not null"`      // public / private
-	OwnerUserID uint64         `gorm:"column:owner_user_id;not null;default:0"` // private 库归属人（public 为 0）
-	ParentID    uint64         `gorm:"column:parent_id;not null;default:0"`     // 父目录（0=根）
-	Name        string         `gorm:"column:name;size:128;not null"`
-	CreatedAt   time.Time      `gorm:"column:created_at;type:datetime(3)"`
-	UpdatedAt   time.Time      `gorm:"column:updated_at;type:datetime(3)"`
-	DeletedAt   gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index"`
+	ID          uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	TenantID    uint64         `gorm:"column:tenant_id;not null" json:"tenant_id"`
+	Scope       string         `gorm:"column:scope;size:16;not null" json:"scope"`
+	OwnerUserID uint64         `gorm:"column:owner_user_id;not null;default:0" json:"owner_user_id"`
+	ParentID    uint64         `gorm:"column:parent_id;not null;default:0" json:"parent_id"`
+	Name        string         `gorm:"column:name;size:128;not null" json:"name"`
+	CreatedAt   time.Time      `gorm:"column:created_at;type:datetime(3)" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at;type:datetime(3)" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index" json:"deleted_at,omitempty"`
 }
 
 func (KbaseDir) TableName() string { return "kbase_dirs" }
 
 // KbaseFile 文档元数据（逻辑身份，跨版本不变）
 type KbaseFile struct {
-	ID                 uint64         `gorm:"column:id;primaryKey;autoIncrement"`
-	TenantID           uint64         `gorm:"column:tenant_id;not null"`
-	Scope              string         `gorm:"column:scope;size:16;not null"`           // public / private
-	DirID              uint64         `gorm:"column:dir_id;not null"`                  // 所属目录
-	OwnerUserID        uint64         `gorm:"column:owner_user_id;not null"`           // 上传者
-	Name               string         `gorm:"column:name;size:256;not null"`
-	CurrentVersionMd5  string         `gorm:"column:current_version_md5;size:64;not null;default:''"` // 当前最新版本 md5
-	FileType           string         `gorm:"column:file_type;size:16;not null"`                        // txt / md
-	Size               int64          `gorm:"column:size;default:0"`
-	Active             int8           `gorm:"column:active;default:1"` // 是否可见可检索（删除=0）
-	CreatedAt          time.Time      `gorm:"column:created_at;type:datetime(3)"`
-	UpdatedAt          time.Time      `gorm:"column:updated_at;type:datetime(3)"`
-	DeletedAt          gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index"`
+	ID                uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	TenantID          uint64         `gorm:"column:tenant_id;not null" json:"tenant_id"`
+	Scope             string         `gorm:"column:scope;size:16;not null" json:"scope"`
+	DirID             uint64         `gorm:"column:dir_id;not null" json:"dir_id"`
+	OwnerUserID       uint64         `gorm:"column:owner_user_id;not null" json:"owner_user_id"`
+	Name              string         `gorm:"column:name;size:256;not null" json:"name"`
+	CurrentVersionMd5 string         `gorm:"column:current_version_md5;size:64;not null;default:''" json:"current_version_md5"`
+	FileType          string         `gorm:"column:file_type;size:16;not null" json:"file_type"`
+	Size              int64          `gorm:"column:size;default:0" json:"size"`
+	Active            int8           `gorm:"column:active;default:1" json:"active"`
+	CreatedAt         time.Time      `gorm:"column:created_at;type:datetime(3)" json:"created_at"`
+	UpdatedAt         time.Time      `gorm:"column:updated_at;type:datetime(3)" json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index" json:"deleted_at,omitempty"`
 }
 
 func (KbaseFile) TableName() string { return "kbase_files" }

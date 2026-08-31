@@ -40,8 +40,10 @@ func main() {
 		}
 		log.Printf("处理文档解析: file=%d version=%d", msg.FileID, msg.VersionID)
 		if err := service.ProcessDocument(context.Background(), msg.TenantID, msg.FileID, msg.VersionID); err != nil {
-			log.Printf("处理失败（重入队）: %v", err)
-			return err
+			// ProcessDocument 内部已将版本状态置为 fail，这里 Ack（不重入队），
+			// 避免"落库部分完成 + embedding 失败"重跑撞唯一索引造成无限死循环。
+			log.Printf("处理失败（已置 fail，Ack 不重入队）: %v", err)
+			return nil
 		}
 		log.Printf("处理成功: file=%d version=%d", msg.FileID, msg.VersionID)
 		return nil
