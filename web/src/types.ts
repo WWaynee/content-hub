@@ -49,6 +49,8 @@ export interface KbaseDir {
   name: string
   scope: string
   parent_id: number
+  created_at: string
+  updated_at: string
 }
 
 export interface KbaseFile {
@@ -59,6 +61,8 @@ export interface KbaseFile {
   file_type: string
   size: number
   current_version_md5: string
+  created_at: string
+  updated_at: string
 }
 
 export interface QASession {

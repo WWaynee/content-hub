@@ -10,7 +10,6 @@ import {
   Tree,
   Segmented,
   Breadcrumb,
-  Select,
   Modal,
   Tag,
   Tooltip,
@@ -22,12 +21,13 @@ import {
   DeleteOutlined,
   EyeOutlined,
   DownloadOutlined,
+  FolderOutlined,
   FolderOpenOutlined,
-  PlusOutlined,
   SearchOutlined,
   ReloadOutlined,
   EditOutlined,
   MessageOutlined,
+  FolderAddOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import type { KbaseDir, KbaseFile, QASession, QAMessage } from '../types'
@@ -50,8 +50,19 @@ function buildTree(dirs: KbaseDir[]): TreeNode[] {
   return roots
 }
 
+function fmtTime(t?: string): string {
+  if (!t) return '—'
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return t
+  return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+function fmtSize(s?: number): string {
+  if (!s) return ''
+  return s >= 1024 ? `${(s / 1024).toFixed(1)} KB` : `${s} B`
+}
+
 export default function Knowledge() {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const [scope, setScope] = useState<'private' | 'public'>('private')
   const [dirID, setDirID] = useState(0)
   const [dirStack, setDirStack] = useState<{ id: number; name: string }[]>([])
@@ -60,14 +71,19 @@ export default function Knowledge() {
   const [files, setFiles] = useState<KbaseFile[]>([])
   const [loadingFiles, setLoadingFiles] = useState(false)
 
-  // 文件检索
-  const [fileField, setFileField] = useState<'name' | 'file_type'>('name')
+  // 文件检索：仅文件名，当前目录内
   const [fileKeyword, setFileKeyword] = useState('')
-  const [appliedFileQuery, setAppliedFileQuery] = useState<{ name?: string; file_type?: string }>({})
+  const [appliedFileQuery, setAppliedFileQuery] = useState('')
 
-  // 新建目录
+  // 新建目录 / 重命名（目录或文件）/ 预览 弹窗
   const [newDirModal, setNewDirModal] = useState(false)
   const [newDirName, setNewDirName] = useState('')
+  const [renameModal, setRenameModal] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<{ type: 'dir' | 'file'; id: number; name: string } | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [previewModal, setPreviewModal] = useState(false)
+  const [previewData, setPreviewData] = useState<{ name: string; content: string } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   // 问答会话
   const [sessions, setSessions] = useState<QASession[]>([])
@@ -77,9 +93,9 @@ export default function Knowledge() {
   const [asking, setAsking] = useState(false)
 
   // 会话改名
-  const [renameModal, setRenameModal] = useState(false)
-  const [renameId, setRenameId] = useState(0)
-  const [renameTitle, setRenameTitle] = useState('')
+  const [sessionRenameModal, setSessionRenameModal] = useState(false)
+  const [sessionRenameId, setSessionRenameId] = useState(0)
+  const [sessionRenameTitle, setSessionRenameTitle] = useState('')
 
   const loadTree = useCallback(async () => {
     const d = (await api.get(`/kbase/tree?scope=${scope}`)) as any
@@ -92,8 +108,7 @@ export default function Knowledge() {
       const d = (await api.get(`/kbase/dir?scope=${scope}&dir_id=${dirID}`)) as any
       setCurDirs(d?.dirs || [])
       let fs: KbaseFile[] = d?.files || []
-      if (appliedFileQuery.name) fs = fs.filter((f) => f.name.includes(appliedFileQuery.name!))
-      if (appliedFileQuery.file_type) fs = fs.filter((f) => f.file_type === appliedFileQuery.file_type)
+      if (appliedFileQuery) fs = fs.filter((f) => f.name.includes(appliedFileQuery))
       setFiles(fs)
     } finally {
       setLoadingFiles(false)
@@ -119,16 +134,32 @@ export default function Knowledge() {
     loadCurDir()
   }
 
-  // 进入顶层/根
   const goRoot = () => {
     setDirID(0)
     setDirStack([])
+    setAppliedFileQuery('')
   }
-  const goDir = (id: number, name: string) => {
+  const enterDir = (id: number, name: string) => {
     setDirStack((s) => [...s, { id: dirID, name }])
     setDirID(id)
+    setAppliedFileQuery('')
   }
-  // 面包屑跳回第 index 层（index 对应 dirStack 下标；-1 表示根）
+  // 目录树点击：切换当前目录，并重建完整祖先路径（替换而非追加）
+  const selectDirByID = (id: number) => {
+    const byId = new Map<number, KbaseDir>()
+    treeDirs.forEach((d) => byId.set(d.id, d))
+    const d = byId.get(id)
+    if (!d) return
+    const path: { id: number; name: string }[] = []
+    let cur = byId.get(d.parent_id)
+    while (cur) {
+      path.unshift({ id: cur.id, name: cur.name })
+      cur = byId.get(cur.parent_id)
+    }
+    setDirStack(path)
+    setDirID(d.id)
+    setAppliedFileQuery('')
+  }
   const goBreadcrumb = (index: number) => {
     if (index < 0) {
       goRoot()
@@ -136,17 +167,12 @@ export default function Knowledge() {
       const target = dirStack[index].id
       setDirID(target)
       setDirStack((s) => s.slice(0, index))
+      setAppliedFileQuery('')
     }
   }
 
   const applyFileSearch = () => {
-    if (!fileKeyword.trim()) {
-      setAppliedFileQuery({})
-    } else if (fileField === 'file_type') {
-      setAppliedFileQuery({ file_type: fileKeyword.trim() })
-    } else {
-      setAppliedFileQuery({ name: fileKeyword.trim() })
-    }
+    setAppliedFileQuery(fileKeyword.trim())
   }
 
   const mkdir = async () => {
@@ -176,8 +202,72 @@ export default function Knowledge() {
     }
   }
 
-  const openUrl = async (path: string) => {
-    const r = (await api.get(path)) as any
+  const openRename = (type: 'dir' | 'file', id: number, name: string) => {
+    setRenameTarget({ type, id, name })
+    setRenameName(name)
+    setRenameModal(true)
+  }
+  const doRename = async () => {
+    if (!renameTarget || !renameName.trim()) return
+    try {
+      if (renameTarget.type === 'dir') {
+        await api.put(`/kbase/dir/${renameTarget.id}?scope=${scope}`, { name: renameName.trim() })
+      } else {
+        await api.put(`/kbase/file/${renameTarget.id}?scope=${scope}`, { name: renameName.trim() })
+      }
+      message.success('已重命名')
+      setRenameModal(false)
+      refreshBrowse()
+    } catch (e: any) {
+      message.error(e.message || '重命名失败')
+    }
+  }
+
+  const doDeleteDir = (d: KbaseDir) => {
+    modal.confirm({
+      title: '删除目录',
+      content: `确定删除目录「${d.name}」？删除后其中的文件将不可恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await api.delete(`/kbase/dir/${d.id}?scope=${scope}`)
+        if (dirID === d.id) goRoot()
+        message.success('已删除目录')
+        refreshBrowse()
+      },
+    })
+  }
+  const doDeleteFile = (f: KbaseFile) => {
+    modal.confirm({
+      title: '删除文件',
+      content: `确定删除文件「${f.name}」？删除后不可恢复，敏感操作确认继续？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await api.delete(`/kbase/file/${f.id}?scope=${scope}`)
+        message.success('已删除文件')
+        refreshBrowse()
+      },
+    })
+  }
+
+  const openPreview = async (f: KbaseFile) => {
+    setPreviewModal(true)
+    setPreviewLoading(true)
+    setPreviewData({ name: f.name, content: '' })
+    try {
+      const r = (await api.get(`/kbase/file/${f.id}/content`)) as any
+      setPreviewData({ name: r?.name || f.name, content: r?.content || '' })
+    } catch (e: any) {
+      setPreviewData({ name: f.name, content: `无法预览：${e.message || '读取失败'}` })
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+  const downloadFile = async (f: KbaseFile) => {
+    const r = (await api.get(`/kbase/file/${f.id}/download`)) as any
     window.open(r.url, '_blank')
   }
 
@@ -211,16 +301,16 @@ export default function Knowledge() {
       setAsking(false)
     }
   }
-  const openRename = (s: QASession) => {
-    setRenameId(s.id)
-    setRenameTitle(s.title || '')
-    setRenameModal(true)
+  const openSessionRename = (s: QASession) => {
+    setSessionRenameId(s.id)
+    setSessionRenameTitle(s.title || '')
+    setSessionRenameModal(true)
   }
-  const doRename = async () => {
+  const doSessionRename = async () => {
     try {
-      await api.put(`/qa/sessions/${renameId}`, { title: renameTitle.trim() })
+      await api.put(`/qa/sessions/${sessionRenameId}`, { title: sessionRenameTitle.trim() })
       message.success('已改名')
-      setRenameModal(false)
+      setSessionRenameModal(false)
       loadSessions()
     } catch (e: any) {
       message.error(e.message || '改名失败')
@@ -240,14 +330,12 @@ export default function Knowledge() {
     }
   }
 
-  // 目录树节点
   const treeNodes = useMemo(() => buildTree(treeDirs), [treeDirs])
-  // 当前选中的目录 key（面包屑顶部/当前）
   const breadcrumbItems = [
     {
       title: (
         <span style={{ cursor: 'pointer' }} onClick={goRoot}>
-          <FolderOpenOutlined /> 根目录
+          当前位置：根目录
         </span>
       ),
     },
@@ -260,25 +348,37 @@ export default function Knowledge() {
     })),
   ]
 
+  const scopeHint =
+    scope === 'private'
+      ? '私有库内部是当前用户个人上传的文件，仅用户个人可见'
+      : '公有库内部是企业/单位管理员账户上传的文件，企业/单位内部所有用户均可见'
+
   return (
     <div style={{ display: 'flex', gap: 16, height: '100%' }}>
       {/* 左：网盘浏览 */}
       <div className="app-card" style={{ flex: 2, padding: 16, minHeight: 520, overflow: 'auto' }}>
-        {/* 顶部工具行 */}
-        <Space wrap style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Space wrap>
-            <Segmented
-              value={scope}
-              onChange={(v) => {
-                setScope(v as 'private' | 'public')
-                goRoot()
-                setAppliedFileQuery({})
-              }}
-              options={[
-                { label: '私有库', value: 'private' },
-                { label: '公有库', value: 'public' },
-              ]}
-            />
+        {/* 顶部：仅私有/公有切换 + 跟随主题说明 */}
+        <div style={{ marginBottom: 4 }}>
+          <Segmented
+            value={scope}
+            onChange={(v) => {
+              setScope(v as 'private' | 'public')
+              goRoot()
+            }}
+            options={[
+              { label: '私有库', value: 'private' },
+              { label: '公有库', value: 'public' },
+            ]}
+          />
+        </div>
+        <Typography.Text type="secondary" style={{ display: 'block', fontSize: 13, marginBottom: 16, color: 'var(--text-soft)' }}>
+          {scopeHint}
+        </Typography.Text>
+
+        {/* 面包屑 + 右上角操作（上传/新建目录） */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+          <Breadcrumb items={breadcrumbItems} />
+          <Space>
             <Upload
               accept=".txt,.md,.markdown"
               showUploadList={false}
@@ -288,44 +388,22 @@ export default function Knowledge() {
               }}
               multiple
             >
-              <Button icon={<UploadOutlined />}>上传到当前目录</Button>
+              <Button type="primary" icon={<UploadOutlined />}>
+                上传到当前目录
+              </Button>
             </Upload>
-            <Button icon={<PlusOutlined />} onClick={() => { setNewDirName(''); setNewDirModal(true) }}>
+            <Button icon={<FolderAddOutlined />} onClick={() => { setNewDirName(''); setNewDirModal(true) }}>
               新建目录
-            </Button>
-          </Space>
-          <Space>
-            <Select
-              value={fileField}
-              onChange={setFileField}
-              style={{ width: 92 }}
-              options={[
-                { label: '文件名', value: 'name' },
-                { label: '文件类型', value: 'file_type' },
-              ]}
-            />
-            <Input
-              placeholder="搜索文件"
-              style={{ width: 200 }}
-              value={fileKeyword}
-              onChange={(e) => setFileKeyword(e.target.value)}
-              onPressEnter={applyFileSearch}
-              allowClear
-            />
-            <Button type="primary" icon={<SearchOutlined />} onClick={applyFileSearch}>
-              检索
             </Button>
             <Tooltip title="刷新">
               <Button icon={<ReloadOutlined />} onClick={refreshBrowse} />
             </Tooltip>
           </Space>
-        </Space>
-
-        <Breadcrumb items={breadcrumbItems} style={{ marginBottom: 12 }} />
+        </div>
 
         <div style={{ display: 'flex', gap: 16 }}>
           {/* 目录树 */}
-          <div style={{ width: 250, borderRight: '1px solid var(--panel-border)', paddingRight: 12, minHeight: 400 }}>
+          <div style={{ width: 240, borderRight: '1px solid var(--panel-border)', paddingRight: 12, minHeight: 400 }}>
             <Typography.Text strong>目录</Typography.Text>
             {treeNodes.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无目录" />
@@ -333,105 +411,117 @@ export default function Knowledge() {
               <Tree
                 showLine
                 showIcon
+                icon={(props) => (props.expanded ? <FolderOpenOutlined style={{ color: '#f6b33c' }} /> : <FolderOutlined style={{ color: '#f6b33c' }} />)}
                 defaultExpandAll={false}
                 treeData={treeNodes}
-                selectedKeys={dirStack.length ? [dirStack[dirStack.length - 1].id] : dirID ? [dirID] : []}
-                onSelect={(_keys, info) => {
-                  const key = info.node.key as number
-                  const d = treeDirs.find((x) => x.id === key)
-                  if (d) goDir(d.id, d.name)
-                }}
+                selectedKeys={dirID ? [dirID] : []}
+                onSelect={(_keys, info) => selectDirByID(info.node.key as number)}
                 onExpand={(_keys, info) => {
-                  const key = info.node.key as number
-                  if (info.expanded) {
-                    const d = treeDirs.find((x) => x.id === key)
-                    if (d) goDir(d.id, d.name)
-                  }
+                  void info
                 }}
               />
             )}
           </div>
 
           {/* 文件区 */}
-          <Spin spinning={loadingFiles} style={{ flex: 1 }}>
-            {/* 子目录 */}
-            {curDirs.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                {curDirs.map((d) => (
-                  <div
-                    key={d.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '6px 8px',
-                      borderRadius: 6,
-                    }}
-                  >
-                    <Typography.Link onClick={() => goDir(d.id, d.name)} style={{ fontSize: 14 }}>
-                      <FolderOpenOutlined /> {d.name}
-                    </Typography.Link>
-                    <Button
-                      danger
-                      size="small"
-                      icon={<DeleteOutlined />}
-                      onClick={async (e) => {
-                        e.preventDefault()
-                        await api.delete(`/kbase/dir/${d.id}?scope=${scope}`)
-                        refreshBrowse()
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* 文件名检索：仅当前目录 */}
+            <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+              <Input
+                placeholder="请输入文件名"
+                prefix={<SearchOutlined />}
+                value={fileKeyword}
+                onChange={(e) => setFileKeyword(e.target.value)}
+                onPressEnter={applyFileSearch}
+                allowClear
+              />
+              <Button type="primary" icon={<SearchOutlined />} onClick={applyFileSearch}>
+                检索
+              </Button>
+              {(appliedFileQuery) && (
+                <Button onClick={() => { setFileKeyword(''); setAppliedFileQuery('') }}>清除</Button>
+              )}
+            </Space.Compact>
 
-            {/* 文件 */}
-            {files.length === 0 && curDirs.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前目录为空，点上方「上传」或「新建目录」" />
-            ) : files.length === 0 ? (
-              <Typography.Text type="secondary">当前目录没有文件</Typography.Text>
-            ) : (
-              files.map((f) => (
-                <div
-                  key={f.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '8px 10px',
-                    borderBottom: '1px solid var(--panel-border)',
-                  }}
-                >
-                  <Space>
-                    <FileTextOutlined style={{ color: 'var(--accent)' }} />
-                    <Typography.Text>{f.name}</Typography.Text>
-                    <Tag>{f.file_type}</Tag>
-                    <Typography.Text type="secondary">{f.size >= 1024 ? `${(f.size / 1024).toFixed(1)} KB` : `${f.size} B`}</Typography.Text>
-                  </Space>
-                  <Space size="small">
-                    <Button size="small" icon={<EyeOutlined />} onClick={() => openUrl(`/kbase/file/${f.id}/preview`)}>
-                      预览
-                    </Button>
-                    <Button size="small" icon={<DownloadOutlined />} onClick={() => openUrl(`/kbase/file/${f.id}/download`)}>
-                      下载
-                    </Button>
-                    <Button
-                      danger
-                      size="small"
-                      icon={<DeleteOutlined />}
-                      onClick={async () => {
-                        await api.delete(`/kbase/file/${f.id}?scope=${scope}`)
-                        refreshBrowse()
+            <Spin spinning={loadingFiles}>
+              {curDirs.length === 0 && files.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前目录为空，点右上角「上传到当前目录」或「新建目录」" />
+              ) : (
+                <>
+                  {/* 子目录 */}
+                  {curDirs.map((d) => (
+                    <div
+                      key={d.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '9px 12px',
+                        borderBottom: '1px solid var(--panel-border)',
                       }}
                     >
-                      删除
-                    </Button>
-                  </Space>
-                </div>
-              ))
-            )}
-          </Spin>
+                      <Space style={{ minWidth: 0, flex: 1 }}>
+                        <FolderOpenOutlined style={{ color: '#f6b33c' }} />
+                        <Typography.Link onClick={() => enterDir(d.id, d.name)} style={{ fontSize: 14 }}>
+                          {d.name}
+                        </Typography.Link>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          创建于 {fmtTime(d.created_at)}
+                        </Typography.Text>
+                      </Space>
+                      <Space size={2}>
+                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openRename('dir', d.id, d.name)}>
+                          重命名
+                        </Button>
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteDir(d)}>
+                          删除
+                        </Button>
+                      </Space>
+                    </div>
+                  ))}
+                  {/* 文件 */}
+                  {files.map((f) => (
+                    <div
+                      key={f.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '9px 12px',
+                        borderBottom: '1px solid var(--panel-border)',
+                      }}
+                    >
+                      <Space style={{ minWidth: 0, flex: 1 }}>
+                        <FileTextOutlined style={{ color: 'var(--accent)' }} />
+                        <Typography.Text ellipsis style={{ maxWidth: 200 }}>{f.name}</Typography.Text>
+                        <Tag style={{ marginInlineEnd: 0 }}>{f.file_type}</Tag>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {fmtSize(f.size)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          上传于 {fmtTime(f.created_at)}
+                        </Typography.Text>
+                      </Space>
+                      <Space size={2}>
+                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openRename('file', f.id, f.name)}>
+                          重命名
+                        </Button>
+                        <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openPreview(f)}>
+                          预览
+                        </Button>
+                        <Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => downloadFile(f)}>
+                          下载
+                        </Button>
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteFile(f)}>
+                          删除
+                        </Button>
+                      </Space>
+                    </div>
+                  ))}
+                </>
+              )}
+            </Spin>
+          </div>
         </div>
       </div>
 
@@ -449,7 +539,6 @@ export default function Knowledge() {
           </Button>
         </div>
 
-        {/* 会话侧边栏 */}
         <div
           style={{
             border: '1px solid var(--panel-border)',
@@ -481,7 +570,7 @@ export default function Knowledge() {
                   {s.title || `会话 #${s.id}`}
                 </Typography.Text>
                 <Space size={2} onClick={(e) => e.stopPropagation()}>
-                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openRename(s)} />
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openSessionRename(s)} />
                   <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteSession(s.id)} />
                 </Space>
               </div>
@@ -489,7 +578,6 @@ export default function Knowledge() {
           )}
         </div>
 
-        {/* 对话窗口 */}
         <div
           style={{
             flex: 1,
@@ -543,7 +631,7 @@ export default function Knowledge() {
 
       {/* 新建目录弹窗 */}
       <Modal
-        title="新建目录"
+        title={`在当前目录新建子目录`}
         open={newDirModal}
         onOk={mkdir}
         onCancel={() => setNewDirModal(false)}
@@ -560,9 +648,9 @@ export default function Knowledge() {
         />
       </Modal>
 
-      {/* 会话改名弹窗 */}
+      {/* 重命名弹窗（目录/文件通用） */}
       <Modal
-        title="改会话标题"
+        title={renameTarget ? `重命名${renameTarget.type === 'dir' ? '目录' : '文件'}` : ''}
         open={renameModal}
         onOk={doRename}
         onCancel={() => setRenameModal(false)}
@@ -571,10 +659,57 @@ export default function Knowledge() {
         width={380}
       >
         <Input
-          placeholder="新标题"
-          value={renameTitle}
-          onChange={(e) => setRenameTitle(e.target.value)}
+          placeholder={renameTarget?.type === 'dir' ? '新目录名' : '新文件名'}
+          value={renameName}
+          onChange={(e) => setRenameName(e.target.value)}
           onPressEnter={doRename}
+          style={{ marginTop: 16 }}
+        />
+      </Modal>
+
+      {/* 预览弹窗（内置文本预览） */}
+      <Modal
+        title={previewData?.name || '预览'}
+        open={previewModal}
+        onCancel={() => setPreviewModal(false)}
+        footer={null}
+        width={720}
+        style={{ top: 40 }}
+      >
+        <pre
+          style={{
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: '60vh',
+            overflow: 'auto',
+            background: 'var(--panel-bg)',
+            border: '1px solid var(--panel-border)',
+            borderRadius: 8,
+            padding: 14,
+            margin: 0,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: 13,
+          }}
+        >
+          {previewLoading ? '加载中…' : previewData?.content || ''}
+        </pre>
+      </Modal>
+
+      {/* 会话改名弹窗 */}
+      <Modal
+        title="改会话标题"
+        open={sessionRenameModal}
+        onOk={doSessionRename}
+        onCancel={() => setSessionRenameModal(false)}
+        okText="保存"
+        cancelText="取消"
+        width={380}
+      >
+        <Input
+          placeholder="新标题"
+          value={sessionRenameTitle}
+          onChange={(e) => setSessionRenameTitle(e.target.value)}
+          onPressEnter={doSessionRename}
           style={{ marginTop: 16 }}
         />
       </Modal>

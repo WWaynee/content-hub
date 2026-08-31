@@ -2,7 +2,9 @@ package handler
 
 import (
 	"io"
+	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -135,6 +137,46 @@ func DeleteKbaseDir(c *gin.Context) {
 	response.SuccessMessage(c, "已删除", nil)
 }
 
+// RenameKbaseDir 重命名目录（仅本 scope 归属者/管理员）。
+func RenameKbaseDir(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = storage.ScopePrivate
+	}
+	dirID, err := parseID(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "无效目录 ID")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		response.BadRequest(c, "请提供新目录名")
+		return
+	}
+	ownerUserID := userID
+	if scope == storage.ScopePublic {
+		ownerUserID = 0
+		if middleware.GetRole(c) != storage.RoleAdmin {
+			response.Forbidden(c, "仅管理员可操作公有知识库")
+			return
+		}
+	}
+	affected, err := storage.RenameDir(c.Request.Context(), tenantID, scope, ownerUserID, dirID, req.Name)
+	if err != nil {
+		response.ServerError(c, "重命名目录失败")
+		return
+	}
+	if affected == 0 {
+		response.BadRequest(c, "目录不存在或无权操作")
+		return
+	}
+	response.SuccessMessage(c, "已重命名", nil)
+}
+
 // UploadFile 上传文档（新建或覆盖）。
 // 表单：scope, dir_id, file（multipart）；覆盖时另传 target_file_id。
 func UploadFile(c *gin.Context) {
@@ -218,9 +260,50 @@ func DeleteKbaseFile(c *gin.Context) {
 	response.SuccessMessage(c, "已删除", nil)
 }
 
+// RenameKbaseFile 重命名文件（仅本 scope 归属者/管理员）。
+func RenameKbaseFile(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = storage.ScopePrivate
+	}
+	fileID, err := parseID(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "无效文件 ID")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		response.BadRequest(c, "请提供新文件名")
+		return
+	}
+	ownerUserID := userID
+	if scope == storage.ScopePublic {
+		ownerUserID = 0
+		if middleware.GetRole(c) != storage.RoleAdmin {
+			response.Forbidden(c, "仅管理员可操作公有知识库")
+			return
+		}
+	}
+	affected, err := storage.RenameFile(c.Request.Context(), tenantID, scope, ownerUserID, fileID, req.Name)
+	if err != nil {
+		response.ServerError(c, "重命名文件失败")
+		return
+	}
+	if affected == 0 {
+		response.BadRequest(c, "文件不存在或无权操作")
+		return
+	}
+	response.SuccessMessage(c, "已重命名", nil)
+}
+
 // PreviewFile 预览（返回预签名 inline URL）。
 func PreviewFile(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
 	fileID, err := parseID(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "无效文件 ID")
@@ -229,6 +312,10 @@ func PreviewFile(c *gin.Context) {
 	f, err := storage.GetFileByID(c.Request.Context(), tenantID, fileID)
 	if err != nil {
 		response.BadRequest(c, "文件不存在")
+		return
+	}
+	if f.Scope == storage.ScopePrivate && f.OwnerUserID != userID {
+		response.Forbidden(c, "无权访问他人私有文件")
 		return
 	}
 	latest, err := storage.GetLatestVersion(c.Request.Context(), fileID)
@@ -245,9 +332,10 @@ func PreviewFile(c *gin.Context) {
 	response.Success(c, gin.H{"url": url})
 }
 
-// DownloadFile 下载（返回预签名 attachment URL）。
-func DownloadFile(c *gin.Context) {
+// GetFileContent 读取文本文件内容（供内置预览，不走浏览器下载）。
+func GetFileContent(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
 	fileID, err := parseID(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "无效文件 ID")
@@ -256,6 +344,45 @@ func DownloadFile(c *gin.Context) {
 	f, err := storage.GetFileByID(c.Request.Context(), tenantID, fileID)
 	if err != nil {
 		response.BadRequest(c, "文件不存在")
+		return
+	}
+	if f.Scope == storage.ScopePrivate && f.OwnerUserID != userID {
+		response.Forbidden(c, "无权访问他人私有文件")
+		return
+	}
+	if !strings.HasPrefix(f.FileType, "text/") && !isTextExt(f.Name) {
+		response.BadRequest(c, "暂不支持该类型文件预览")
+		return
+	}
+	latest, err := storage.GetLatestVersion(c.Request.Context(), fileID)
+	if err != nil {
+		response.ServerError(c, "查询版本失败")
+		return
+	}
+	data, err := storage.DownloadFile(latest.OSSObjectKey)
+	if err != nil {
+		response.ServerError(c, "读取文件内容失败")
+		return
+	}
+	response.Success(c, gin.H{"name": f.Name, "content": string(data)})
+}
+
+// DownloadFile 下载（返回预签名 attachment URL）。
+func DownloadFile(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	fileID, err := parseID(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "无效文件 ID")
+		return
+	}
+	f, err := storage.GetFileByID(c.Request.Context(), tenantID, fileID)
+	if err != nil {
+		response.BadRequest(c, "文件不存在")
+		return
+	}
+	if f.Scope == storage.ScopePrivate && f.OwnerUserID != userID {
+		response.Forbidden(c, "无权访问他人私有文件")
 		return
 	}
 	latest, err := storage.GetLatestVersion(c.Request.Context(), fileID)
@@ -269,4 +396,13 @@ func DownloadFile(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"url": url})
+}
+
+// isTextExt 判断文件名是否为可预览的纯文本扩展名。
+func isTextExt(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".txt", ".md", ".markdown", ".json", ".csv", ".log", ".text":
+		return true
+	}
+	return false
 }

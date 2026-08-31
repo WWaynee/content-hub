@@ -68,3 +68,14 @@ func SoftDeleteDir(ctx context.Context, tenantID uint64, scope string, ownerUser
 	}
 	return q.Delete(&model.KbaseDir{}).Error
 }
+
+// RenameDir 重命名目录（仅本 scope 归属者可操作）。返回受影响行数，越权时为 0。
+func RenameDir(ctx context.Context, tenantID uint64, scope string, ownerUserID, dirID uint64, name string) (int64, error) {
+	q := GetDB().WithContext(ctx).Model(&model.KbaseDir{}).
+		Where("id = ? AND tenant_id = ? AND scope = ?", dirID, tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	res := q.Update("name", name)
+	return res.RowsAffected, res.Error
+}

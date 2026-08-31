@@ -49,10 +49,13 @@ func NewRouter() *gin.Engine {
 		priv.GET("/kbase/dir", handler.ListKbaseDir)
 		priv.GET("/kbase/tree", handler.GetKbaseTree)
 		priv.POST("/kbase/dir", handler.CreateKbaseDir)
+		priv.PUT("/kbase/dir/:id", handler.RenameKbaseDir)
 		priv.DELETE("/kbase/dir/:id", handler.DeleteKbaseDir)
 		priv.POST("/kbase/file", handler.UploadFile)
+		priv.PUT("/kbase/file/:id", handler.RenameKbaseFile)
 		priv.DELETE("/kbase/file/:id", handler.DeleteKbaseFile)
 		priv.GET("/kbase/file/:id/preview", handler.PreviewFile)
+		priv.GET("/kbase/file/:id/content", handler.GetFileContent)
 		priv.GET("/kbase/file/:id/download", handler.DownloadFile)
 
 		// 稿件

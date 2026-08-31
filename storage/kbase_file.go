@@ -134,3 +134,14 @@ func SoftDeleteFile(ctx context.Context, tenantID uint64, scope string, ownerUse
 	}
 	return q.Update("active", 0).Error
 }
+
+// RenameFile 重命名文件（仅本 scope 归属者可操作）。返回受影响行数，越权时为 0。
+func RenameFile(ctx context.Context, tenantID uint64, scope string, ownerUserID, fileID uint64, name string) (int64, error) {
+	q := GetDB().WithContext(ctx).Model(&model.KbaseFile{}).
+		Where("id = ? AND tenant_id = ? AND scope = ?", fileID, tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	res := q.Update("name", name)
+	return res.RowsAffected, res.Error
+}
