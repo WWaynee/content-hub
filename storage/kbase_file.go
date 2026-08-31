@@ -32,12 +32,15 @@ func GetFileByID(ctx context.Context, tenantID, fileID uint64) (*model.KbaseFile
 	return &f, nil
 }
 
-// ListFilesByDir 列出某目录下的文件（仅 active=1，即可见可检索）。
-func ListFilesByDir(ctx context.Context, tenantID, dirID uint64) ([]model.KbaseFile, error) {
+// ListFilesByDir 列出某 scope 某目录下的文件（仅 active=1）。
+// 私有库按 ownerUserID 过滤；公有库 ownerUserID 传 0。
+func ListFilesByDir(ctx context.Context, tenantID uint64, scope string, ownerUserID, dirID uint64) ([]model.KbaseFile, error) {
+	q := GetDB().WithContext(ctx).Where("tenant_id = ? AND scope = ? AND dir_id = ? AND active = 1", tenantID, scope, dirID)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
 	var list []model.KbaseFile
-	if err := GetDB().WithContext(ctx).
-		Where("tenant_id = ? AND dir_id = ? AND active = 1", tenantID, dirID).
-		Order("updated_at DESC").Find(&list).Error; err != nil {
+	if err := q.Order("updated_at DESC").Find(&list).Error; err != nil {
 		return nil, err
 	}
 	return list, nil

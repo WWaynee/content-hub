@@ -10,8 +10,8 @@ import (
 
 // collectDirFileIDs 递归收集某目录（含其所有子目录）下的 active 文件 ID。
 func collectDirFileIDs(ctx context.Context, tenantID, dirID uint64, acc *map[uint64]bool) error {
-	// 该目录下的文件
-	files, err := ListFilesByDir(ctx, tenantID, dirID)
+	// 该目录下的文件（collectDirFileIDs 沿公有库目录语义展开）
+	files, err := ListFilesByDir(ctx, tenantID, ScopePublic, 0, dirID)
 	if err != nil {
 		return err
 	}

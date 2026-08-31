@@ -65,16 +65,34 @@ func TestMultitenantIsolation(t *testing.T) {
 		t.Fatalf("租户 B 越权读租户 A 的需求单应失败")
 	}
 
-	// 6. B 列 A 目录下的文件 → 应为空
-	aFilesAsB, err := storage.ListFilesByDir(ctx, tenantB, dirA.ID)
+	// 6. 同租户另一用户(owner=2)列 A(owner=1)的私有目录文件 → 应为空（私有库按用户过滤）
+	otherOwnerFiles, err := storage.ListFilesByDir(ctx, tenantA, storage.ScopePrivate, 2, dirA.ID)
+	if err != nil {
+		t.Fatalf("同租户其他用户列文件失败: %v", err)
+	}
+	if len(otherOwnerFiles) != 0 {
+		t.Fatalf("同租户其他用户不应看到 A 私有目录下的文件")
+	}
+
+	// 7. 外租户 B(owner=1)列 A 私有目录文件 → 应为空
+	aFilesAsB, err := storage.ListFilesByDir(ctx, tenantB, storage.ScopePrivate, 1, dirA.ID)
 	if err != nil {
 		t.Fatalf("B 列文件失败: %v", err)
 	}
 	if len(aFilesAsB) != 0 {
-		t.Fatalf("租户 B 不应看到租户 A 目录下的文件")
+		t.Fatalf("租户 B 不应看到租户 A 私有目录下的文件")
 	}
 
-	t.Log("多租户隔离对抗验证通过：目录/文件/工作区/需求单 全部隔离")
+	// 8. 本人(owner=1) 应能看到自己的私有文件
+	ownFiles, err := storage.ListFilesByDir(ctx, tenantA, storage.ScopePrivate, 1, dirA.ID)
+	if err != nil {
+		t.Fatalf("本人列文件失败: %v", err)
+	}
+	if len(ownFiles) != 1 {
+		t.Fatalf("本人(owner=1)应能看到自己的 private 文件, 实际 %d 个", len(ownFiles))
+	}
+
+	t.Log("多租户/多用户隔离对抗验证通过：同租户跨用户私有文件隔离 + 跨租户隔离")
 	_ = errors.Is // 保持 import
 	_ = fileA
 

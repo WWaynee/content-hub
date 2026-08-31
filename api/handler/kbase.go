@@ -39,7 +39,7 @@ func ListKbaseDir(c *gin.Context) {
 		response.ServerError(c, "查询目录失败")
 		return
 	}
-	files, err := storage.ListFilesByDir(c.Request.Context(), tenantID, dirID)
+	files, err := storage.ListFilesByDir(c.Request.Context(), tenantID, scope, ownerUserID, dirID)
 	if err != nil {
 		response.ServerError(c, "查询文件失败")
 		return
