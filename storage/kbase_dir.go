@@ -44,6 +44,19 @@ func ListDirs(ctx context.Context, tenantID uint64, scope string, ownerUserID, p
 	return list, nil
 }
 
+// ListAllDirs 列出某租户某 scope 下全部目录（用于组装目录树）。
+func ListAllDirs(ctx context.Context, tenantID uint64, scope string, ownerUserID uint64) ([]model.KbaseDir, error) {
+	q := GetDB().WithContext(ctx).Where("tenant_id = ? AND scope = ?", tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	var list []model.KbaseDir
+	if err := q.Order("created_at ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // EnsureDirNotFound 判断目录不存在的错误。
 func EnsureDirNotFound(err error) bool { return err == gorm.ErrRecordNotFound }
 

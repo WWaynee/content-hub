@@ -48,6 +48,26 @@ func ListKbaseDir(c *gin.Context) {
 	response.Success(c, gin.H{"dirs": dirs, "files": files})
 }
 
+// GetKbaseTree 返回 scope 下全部目录（扁平，前端组装为目录树）。
+func GetKbaseTree(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = storage.ScopePrivate
+	}
+	ownerUserID := userID
+	if scope == storage.ScopePublic {
+		ownerUserID = 0
+	}
+	dirs, err := storage.ListAllDirs(c.Request.Context(), tenantID, scope, ownerUserID)
+	if err != nil {
+		response.ServerError(c, "查询目录树失败")
+		return
+	}
+	response.Success(c, gin.H{"dirs": dirs})
+}
+
 // CreateDirReq 建目录请求。
 type CreateDirReq struct {
 	Scope    string `json:"scope" binding:"required"`      // public/private

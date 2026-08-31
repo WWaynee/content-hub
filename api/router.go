@@ -47,6 +47,7 @@ func NewRouter() *gin.Engine {
 
 		// 知识库
 		priv.GET("/kbase/dir", handler.ListKbaseDir)
+		priv.GET("/kbase/tree", handler.GetKbaseTree)
 		priv.POST("/kbase/dir", handler.CreateKbaseDir)
 		priv.DELETE("/kbase/dir/:id", handler.DeleteKbaseDir)
 		priv.POST("/kbase/file", handler.UploadFile)
@@ -63,6 +64,8 @@ func NewRouter() *gin.Engine {
 		// 知识库问答
 		priv.GET("/qa/sessions", handler.ListQASessions)
 		priv.POST("/qa/sessions", handler.CreateQASession)
+		priv.PUT("/qa/sessions/:session_id", handler.RenameQASession)
+		priv.DELETE("/qa/sessions/:session_id", handler.DeleteQASession)
 		priv.POST("/qa/sessions/:session_id/ask", handler.AskQA)
 		priv.GET("/qa/sessions/:session_id/messages", handler.GetQAMessages)
 	}
