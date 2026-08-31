@@ -87,16 +87,24 @@ type EvidenceManifest struct {
 	Entries []EvidenceManifestEntry
 }
 
-// DialogueAction 需求对话 agent 输出的结构化操作。
+// DialogueAction 对话 agent 输出的单个原子动作（工具调用）。
 type DialogueAction struct {
-	// Type: update_requirement / revise_article
-	Type string
-	// 需求单字段更新（update_requirement 时）
-	Field       string
-	FieldValue  string
-	// 稿件修订（revise_article 时）
-	TargetSentenceIndex int
-	Instruction         string
-	NeedsRetrieval      bool
-	RetrievalQuery      string
+	// Tool 动作类型（受白名单约束）：
+	//   update_requirement_field / request_retrieval / append_article_content / revise_article_sentence
+	Tool string `json:"tool"`
+	// 需求单字段更新（update_requirement_field 时）
+	Field      string `json:"field,omitempty"`
+	FieldValue string `json:"field_value,omitempty"`
+	// 修订稿件（revise/append 时）
+	TargetSentenceIndex int    `json:"target_sentence_index,omitempty"`
+	Instruction         string `json:"instruction,omitempty"`
+	Position            string `json:"position,omitempty"` // append_article_content 的位置（如 last）
+	// 请求补检索（request_retrieval 时）
+	NeedsRetrieval bool   `json:"needs_retrieval,omitempty"`
+	RetrievalQuery string `json:"retrieval_query,omitempty"`
+}
+
+// DialoguePlan 对话 agent 输出的动作计划（一个对话可含多个动作）。
+type DialoguePlan struct {
+	Actions []DialogueAction `json:"actions"`
 }
