@@ -24,6 +24,7 @@ import {
   SunOutlined,
   MoonOutlined,
   TeamOutlined,
+  BookOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useTheme } from '../theme'
@@ -35,9 +36,12 @@ export default function Layout() {
   const { message } = App.useApp()
   const { mode, toggle } = useTheme()
   const [scope, setScope] = useState<'public' | 'private'>('private')
-  const [selected, setSelected] = useState(() =>
-    location.pathname.startsWith('/knowledge') ? 'knowledge' : 'workspaces',
-  )
+  const [selected, setSelected] = useState(() => {
+    const p = location.pathname
+    if (p.startsWith('/knowledge')) return 'knowledge'
+    if (p.startsWith('/manual')) return 'manual'
+    return 'workspaces'
+  })
 
   // 用户信息（从 localStorage 读取登录时存的 user）
   let user: any = null
@@ -81,6 +85,7 @@ export default function Layout() {
   const menuItems = [
     { key: 'workspaces', icon: <FileTextOutlined />, label: '工作区' },
     { key: 'knowledge', icon: <DatabaseOutlined />, label: '知识库' },
+    { key: 'manual', icon: <BookOutlined />, label: '用户手册' },
   ]
 
   const userMenu = {
@@ -113,10 +118,16 @@ export default function Layout() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            gap: 10,
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <Typography.Title level={4} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
+          <img
+            src="/favicon.svg"
+            alt="icon"
+            style={{ width: 28, height: 28, borderRadius: 6, display: 'block', flexShrink: 0 }}
+          />
+          <Typography.Title level={4} style={{ color: '#fff', margin: 0, fontWeight: 700, whiteSpace: 'nowrap' }}>
             政企内容运营平台
           </Typography.Title>
         </div>
@@ -128,7 +139,7 @@ export default function Layout() {
           style={{ background: 'transparent' }}
           onClick={({ key }) => {
             setSelected(key as string)
-            navigate(key === 'knowledge' ? '/knowledge' : '/workspaces')
+            navigate(key === 'knowledge' ? '/knowledge' : key === 'manual' ? '/manual' : '/workspaces')
           }}
         />
       </Sider>

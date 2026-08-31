@@ -4,6 +4,7 @@ import Layout from './pages/Layout'
 import Workspaces from './pages/Workspaces'
 import WorkspaceDetail from './pages/WorkspaceDetail'
 import Knowledge from './pages/Knowledge'
+import Manual from './pages/Manual'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="/workspaces" element={<Workspaces />} />
           <Route path="/workspaces/:id" element={<WorkspaceDetail />} />
           <Route path="/knowledge" element={<Knowledge />} />
+          <Route path="/manual" element={<Manual />} />
         </Route>
         <Route path="*" element={<Navigate to="/workspaces" replace />} />
       </Routes>
