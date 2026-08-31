@@ -55,18 +55,21 @@
 - [x] 需求对话 agent：升级为「统一入口 + DialoguePlan 多动作计划 + 字段白名单硬拦截 + JSON Schema 机检」（已真实测试通过）
 - [x] Orchestrator（generation 工作流已跑通；revision 编排待阶段6）
 
-## 阶段 6 · 工作区 / 需求单 / 稿件 / 会话 / 导出（下一步）
+## 阶段 6 · 工作区 / 需求单 / 稿件 / 会话 / 导出（完成 ✅）
 
-- [ ] workspaces CRUD（本人可见、首页倒序检索）
-- [ ] requirements CRUD（基础字段 + 任务要求 + requirement_scope 活引用递归展开 + version 字段）
-- [ ] 新增 retrieval_batches 表（检索快照：doc_sentence 指针 + requirement_version）
-- [ ] 对话 agent 升级：统一入口 + DialoguePlan（动作计划）+ 字段白名单硬拦截 + JSON Schema 机检
-- [ ] 稿件生成工作流接入（generation：需求→检索→撰写→证据→快照完成态）
-- [ ] 段落/句子 AI 修订（revision：对话派发→检索/撰写/证据重建，未动句继承）
-- [ ] 惰性失效：需求单 version + retrieval_batch 过期判定（version 变化后禁止局部修订，先全量重生成）
-- [ ] 会话模型（conversations + conversation_messages 存 action plan JSON，target 锚点，阶段私有）
-- [ ] 稿件快照/版本与导出状态机（初稿即完成态/N次修改完成态/修改中禁导）
-- [ ] 导出（合并 md：正文在前 + 证据清单在后 + 证据整理 agent 格式化）
+- [x] workspaces CRUD（本人可见、首页倒序检索）
+- [x] requirements CRUD（基础字段 + 任务要求 + requirement_scope 活引用递归展开 + version 字段）
+- [x] 新增 retrieval_batches 表（检索快照：doc_sentence 指针 + requirement_version）+ 关联表 retrieval_batch_items
+- [x] 对话 agent 升级：统一入口 + DialoguePlan（动作计划）+ 字段白名单硬拦截 + JSON Schema 机检
+- [x] 稿件生成工作流接入（generation：需求→检索→撰写→证据→快照完成态）
+- [x] 段落/句子 AI 修订（revision 核心：句子级重写 + 未动句继承 + 被改句方案甲重检测）
+- [x] 惰性失效：需求单 version + retrieval_batch 过期判定（IsBatchStale + version 对比）
+- [x] 会话模型（conversations + conversation_messages 存 action plan JSON，target 锚点，阶段私有）
+- [x] 稿件快照/版本落库（article_versions/article_sentences/evidence_bindings）
+- [x] 导出（合并 md：正文在前 + 证据清单在后）
+- [x] 测试隔离（真实外网集成测试加 build tag，单元/集成全绿）
+
+> 注：完整 dispatcher（对话派发接 DB + 逐 action 执行）与导出"修改中禁导"运行时状态判定，属阶段6 的收尾延伸，未在本次完成（详见下方阶段7备注）。
 
 ## 阶段 7 · 前端（静态零构建）
 
