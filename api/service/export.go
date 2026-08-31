@@ -12,10 +12,19 @@ import (
 // 导出：合并 md（正文 + 证据清单）。
 
 // ExportArticle 导出某稿件版本为合并 md（正文在前，证据清单在后）。
+// 导出状态机：稿件处于 generating/revising（修改中）时禁止导出。
 func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error) {
 	var ver model.ArticleVersion
 	if err := storage.GetDB().WithContext(ctx).Where("id = ?", articleVersionID).First(&ver).Error; err != nil {
 		return "", fmt.Errorf("查稿件版本失败: %w", err)
+	}
+
+	// 状态机：修改中禁导
+	var ws model.Workspace
+	if err := storage.GetDB().WithContext(ctx).Where("id = ?", ver.WorkspaceID).First(&ws).Error; err == nil {
+		if ws.Status == "generating" || ws.Status == "revising" {
+			return "", fmt.Errorf("稿件正在生成/修订中，暂不可导出")
+		}
 	}
 
 	// 1. 该版本的句子（按 sentence_index 排序）

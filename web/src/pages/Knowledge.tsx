@@ -5,9 +5,9 @@ import type { KbaseDir, KbaseFile, QASession, QAMessage } from '../types'
 export default function Knowledge() {
   const [scope, setScope] = useState<'public' | 'private'>('private')
   const [dirID, setDirID] = useState(0)
+  const [dirStack, setDirStack] = useState<number[]>([])
   const [dirs, setDirs] = useState<KbaseDir[]>([])
   const [files, setFiles] = useState<KbaseFile[]>([])
-  const [parentID, setParentID] = useState(0)
   const [newDirName, setNewDirName] = useState('')
   const [targetFileID, setTargetFileID] = useState<number>(0)
 
@@ -18,7 +18,7 @@ export default function Knowledge() {
   const [question, setQuestion] = useState('')
 
   const loadKbase = async () => {
-    const d = (await api.get(`/kbase/dir?scope=${scope}&dir_id=${dirID}&parent_id=${parentID}`)) as any
+    const d = (await api.get(`/kbase/dir?scope=${scope}&dir_id=${dirID}`)) as any
     setDirs(d?.dirs || [])
     setFiles(d?.files || [])
   }
@@ -116,11 +116,11 @@ export default function Knowledge() {
           <strong>目录</strong>
           {dirs.map((d) => (
             <div key={d.id}>
-              <a onClick={() => { setParentID(dirID); setDirID(d.id) }} style={{ cursor: 'pointer' }}>{d.name}</a>
+              <a onClick={() => { setDirStack((s) => [...s, dirID]); setDirID(d.id) }} style={{ cursor: 'pointer' }}>{d.name}</a>
               <button onClick={() => removeDir(d.id)} style={{ marginLeft: 8 }}>删</button>
             </div>
           ))}
-          {dirID !== 0 && <div><a onClick={() => { setDirID(parentID); setParentID(0) }} style={{ cursor: 'pointer' }}>.. 返回上级</a></div>}
+          {dirID !== 0 && <div><a onClick={() => { const parent = dirStack[dirStack.length - 1] ?? 0; setDirStack((s) => s.slice(0, -1)); setDirID(parent) }} style={{ cursor: 'pointer' }}>.. 返回上级</a></div>}
         </div>
 
         <div>

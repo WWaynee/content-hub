@@ -35,6 +35,9 @@ func GenerateArticle(c *gin.Context) {
 	}
 	agentReq := toAgentRequirement(req)
 
+	// 状态机：进入生成中（禁导）
+	storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generating")
+
 	llm := llmclient.NewClient()
 	o := orchestrator.New(retrieve.New(llm), writing.New(llm), evidence.New())
 	res, err := o.Generate(c.Request.Context(), tenantID, agentReq, nil)

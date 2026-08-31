@@ -28,7 +28,7 @@ type ConversationMessage struct {
 	Role           string    `gorm:"column:role;size:16;not null"` // user/assistant/tool
 	Kind           string    `gorm:"column:kind;size:16;not null;default:'question'"` // question/answer/tool_call/tool_result/system
 	Content        string    `gorm:"column:content;type:text"`
-	TargetType     string    `gorm:"column:target_type;size:16;not null;default:'none'"` // none/sentence/paragraph/requirement_field
+	TargetType     string    `gorm:"column:target_type;size:32;not null;default:'none'"` // none/sentence/paragraph/requirement_field
 	TargetRef      uint64    `gorm:"column:target_ref;not null;default:0"`
 	TraceID        string    `gorm:"column:trace_id;size:128"`
 	CreatedAt      time.Time `gorm:"column:created_at;type:datetime(3)"`

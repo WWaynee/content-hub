@@ -63,9 +63,16 @@ export default function WorkspaceDetail() {
 
   const sendChat = async () => {
     if (!chat || !req) return
-    // 对话接口一期简化：直接改需求单风格字段（用表单演示）；完整 DialoguePlan 对话见后端阶段7C延伸
-    alert('对话功能后端接口待接入（DialoguePlan 派发），当前请用表单手动修改需求单')
-    setChat('')
+    try {
+      const r = (await api.post(`/workspaces/${wid}/chat`, { message: chat, target_type: 'requirement_field', target_ref: req.id })) as any
+      // 展示派发结果
+      const summary = (r?.results || []).map((x: any) => `${x.tool}:${x.success ? '成功' : '失败'}(${x.message})`).join('\n')
+      alert('对话处理结果：\n' + (summary || '无动作'))
+      setChat('')
+      loadReq() // 刷新需求单（对话可能改了字段）
+    } catch (e: any) {
+      alert('对话失败: ' + (e.message || ''))
+    }
   }
 
   const setReqField = (k: keyof Requirement, v: any) => {

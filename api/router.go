@@ -54,6 +54,7 @@ func NewRouter() *gin.Engine {
 		priv.POST("/workspaces/:workspace_id/generate", handler.GenerateArticle)
 		priv.GET("/workspaces/:workspace_id/article", handler.GetArticle)
 		priv.GET("/articles/:article_version_id/export", handler.ExportArticle)
+		priv.POST("/workspaces/:workspace_id/chat", handler.WorkspaceChat)
 
 		// 知识库问答
 		priv.GET("/qa/sessions", handler.ListQASessions)
