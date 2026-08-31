@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/WWaynee/content-hub/api/middleware"
@@ -66,11 +68,22 @@ func ListWorkspaces(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
 	userID := middleware.GetUserID(c)
 	title := c.Query("title")
-	status := c.Query("status")
 	tag := c.Query("tag")
 	platform := c.Query("platform")
+	sort := c.Query("sort")
 
-	list, err := storage.ListWorkspacesFiltered(c.Request.Context(), tenantID, userID, title, status, tag, platform)
+	// status 支持多值：?status=a&status=b 或逗号分隔 ?status=a,b
+	var statuses []string
+	for _, sv := range c.QueryArray("status") {
+		for _, part := range strings.Split(sv, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				statuses = append(statuses, part)
+			}
+		}
+	}
+
+	f := storage.ListWorkspacesFilters{Title: title, Statuses: statuses, Tag: tag, Platform: platform, Sort: sort}
+	list, err := storage.ListWorkspacesFiltered(c.Request.Context(), tenantID, userID, f)
 	if err != nil {
 		response.ServerError(c, "查询工作区失败")
 		return

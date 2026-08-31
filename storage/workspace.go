@@ -42,37 +42,73 @@ func UpdateWorkspaceStatus(ctx context.Context, id uint64, status string) error 
 // WorkspaceWithRequirement 工作区 + 关联需求单（用于列表返回展示字段）。
 type WorkspaceWithRequirement struct {
 	model.Workspace
-	RequirementTitle string
-	RequirementTags  string
-	RequirementPlatforms string
-	RequirementStatus string
+	RequirementTitle    string `json:"requirement_title"`
+	RequirementTags     string `json:"requirement_tags"`
+	RequirementPlatforms string `json:"requirement_platforms"`
+	RequirementStatus   string `json:"requirement_status"`
+	RequirementWordCount int   `json:"requirement_word_count"`
+	RequirementStyleTone   string `json:"requirement_style_tone"`
+	RequirementStyleEmotion string `json:"requirement_style_emotion"`
+	RequirementStyleAudience string `json:"requirement_style_audience"`
+	RequirementStylePurpose string `json:"requirement_style_purpose"`
+	RequirementStyleSubject string `json:"requirement_style_subject"`
+	RequirementChapterRequirement string `json:"requirement_chapter_requirement"`
+	RequirementVersion int   `json:"requirement_version"`
 }
 
-// ListWorkspacesFiltered 列出某用户的工作区，支持 title 子串 + status 精确 + tag/platform JSON contains 过滤。
-// 返回工作区 + 关联需求单的展示字段（不 join 复杂，采用 left join + 选中字段）。
-func ListWorkspacesFiltered(ctx context.Context, tenantID, ownerUserID uint64, titleKeyword, status, tag, platform string) ([]WorkspaceWithRequirement, error) {
+// ListWorkspacesFilters 工作区列表过滤参数。
+type ListWorkspacesFilters struct {
+	Title    string
+	Statuses []string
+	Tag      string
+	Platform string
+	Sort     string // "" | time_asc | time_desc
+}
+
+// ListWorkspacesFiltered 列出某用户的工作区（tenant + owner 强制隔离），支持：
+// title 子串 + statuses 多值精确 + tag/platform JSON contains + Sort 时间排序（asc/desc）。
+// 不启用分页：返回当前用户的全量工作区。
+func ListWorkspacesFiltered(ctx context.Context, tenantID, ownerUserID uint64, f ListWorkspacesFilters) ([]WorkspaceWithRequirement, error) {
 	q := GetDB().WithContext(ctx).
 		Table("workspaces AS w").
-		Select(`w.*, r.title AS requirement_title, r.tags AS requirement_tags,
-		        r.platforms AS requirement_platforms, w.status AS requirement_status`).
+		Select(`w.*,
+		        r.title AS requirement_title,
+		        r.tags AS requirement_tags,
+		        r.platforms AS requirement_platforms,
+		        w.status AS requirement_status,
+		        r.word_count AS requirement_word_count,
+		        r.style_tone AS requirement_style_tone,
+		        r.style_emotion AS requirement_style_emotion,
+		        r.style_audience AS requirement_style_audience,
+		        r.style_purpose AS requirement_style_purpose,
+		        r.style_subject AS requirement_style_subject,
+		        r.chapter_requirement AS requirement_chapter_requirement,
+		        r.version AS requirement_version`).
 		Joins("LEFT JOIN requirements AS r ON r.workspace_id = w.id").
 		Where("w.tenant_id = ? AND w.owner_user_id = ? AND w.deleted_at IS NULL", tenantID, ownerUserID)
 
-	if titleKeyword != "" {
-		q = q.Where("w.title LIKE ?", "%"+titleKeyword+"%")
+	if f.Title != "" {
+		q = q.Where("w.title LIKE ?", "%"+f.Title+"%")
 	}
-	if status != "" {
-		q = q.Where("w.status = ?", status)
+	if len(f.Statuses) > 0 {
+		q = q.Where("w.status IN ?", f.Statuses)
 	}
-	if tag != "" {
-		q = q.Where("JSON_CONTAINS(r.tags, ?)", `"`+tag+`"`)
+	if f.Tag != "" {
+		q = q.Where("JSON_CONTAINS(r.tags, ?)", `"`+f.Tag+`"`)
 	}
-	if platform != "" {
-		q = q.Where("JSON_CONTAINS(r.platforms, ?)", `"`+platform+`"`)
+	if f.Platform != "" {
+		q = q.Where("JSON_CONTAINS(r.platforms, ?)", `"`+f.Platform+`"`)
+	}
+
+	switch f.Sort {
+	case "time_asc":
+		q = q.Order("w.updated_at ASC")
+	default:
+		q = q.Order("w.updated_at DESC")
 	}
 
 	var list []WorkspaceWithRequirement
-	if err := q.Order("w.updated_at DESC").Find(&list).Error; err != nil {
+	if err := q.Find(&list).Error; err != nil {
 		return nil, err
 	}
 	return list, nil

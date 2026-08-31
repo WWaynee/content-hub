@@ -16,6 +16,14 @@ export interface Workspace {
   requirement_title?: string
   requirement_tags?: string
   requirement_platforms?: string
+  requirement_word_count?: number
+  requirement_style_tone?: string
+  requirement_style_emotion?: string
+  requirement_style_audience?: string
+  requirement_style_purpose?: string
+  requirement_style_subject?: string
+  requirement_chapter_requirement?: string
+  requirement_version?: number
 }
 
 export interface Requirement {
