@@ -14,6 +14,7 @@ import {
   Tag,
   Tooltip,
   Spin,
+  Dropdown,
 } from 'antd'
 import {
   FileTextOutlined,
@@ -28,6 +29,7 @@ import {
   EditOutlined,
   MessageOutlined,
   FolderAddOutlined,
+  MoreOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import type { KbaseDir, KbaseFile, QASession, QAMessage } from '../types'
@@ -448,74 +450,109 @@ export default function Knowledge() {
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前目录为空，点右上角「上传到当前目录」或「新建目录」" />
               ) : (
                 <>
-                  {/* 子目录 */}
+                  {/* 表头 */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '6px 12px',
+                      borderBottom: '1px solid var(--panel-border)',
+                      fontWeight: 600,
+                      color: 'var(--text-soft)',
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ flex: '1 1 0', minWidth: 0 }}>文件名</span>
+                    <span style={{ width: 150, flexShrink: 0 }}>更新时间</span>
+                    <span style={{ width: 80, flexShrink: 0, textAlign: 'right' }}>操作</span>
+                  </div>
+
+                  {/* 子目录：操作下拉(重命名/删除)，更新时间=目录内变动时间(updated_at) */}
                   {curDirs.map((d) => (
                     <div
                       key={d.id}
                       style={{
                         display: 'flex',
-                        justifyContent: 'space-between',
                         alignItems: 'center',
                         padding: '9px 12px',
                         borderBottom: '1px solid var(--panel-border)',
                       }}
                     >
-                      <Space style={{ minWidth: 0, flex: 1 }}>
-                        <FolderOpenOutlined style={{ color: '#f6b33c' }} />
-                        <Typography.Link onClick={() => enterDir(d.id, d.name)} style={{ fontSize: 14 }}>
+                      <span style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <FolderOpenOutlined style={{ color: '#f6b33c', flexShrink: 0 }} />
+                        <Typography.Link onClick={() => enterDir(d.id, d.name)} style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {d.name}
                         </Typography.Link>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          创建于 {fmtTime(d.created_at)}
-                        </Typography.Text>
-                      </Space>
-                      <Space size={2}>
-                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openRename('dir', d.id, d.name)}>
-                          重命名
-                        </Button>
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteDir(d)}>
-                          删除
-                        </Button>
-                      </Space>
+                      </span>
+                      <span style={{ width: 150, flexShrink: 0, fontSize: 12, color: 'var(--text-soft)' }}>
+                        {fmtTime(d.updated_at)}
+                      </span>
+                      <span style={{ width: 80, flexShrink: 0, textAlign: 'right' }}>
+                        <Dropdown
+                          trigger={['click']}
+                          menu={{
+                            items: [
+                              { key: 'rename', icon: <EditOutlined />, label: '重命名' },
+                              { type: 'divider' },
+                              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+                            ],
+                            onClick: ({ key, domEvent }) => {
+                              domEvent.stopPropagation()
+                              if (key === 'rename') openRename('dir', d.id, d.name)
+                              if (key === 'delete') doDeleteDir(d)
+                            },
+                          }}
+                        >
+                          <Button type="text" size="small" icon={<MoreOutlined />} />
+                        </Dropdown>
+                      </span>
                     </div>
                   ))}
-                  {/* 文件 */}
+
+                  {/* 文件：操作下拉(预览/下载/重命名/删除)，更新时间=上传时间(created_at) */}
                   {files.map((f) => (
                     <div
                       key={f.id}
                       style={{
                         display: 'flex',
-                        justifyContent: 'space-between',
                         alignItems: 'center',
                         padding: '9px 12px',
                         borderBottom: '1px solid var(--panel-border)',
                       }}
                     >
-                      <Space style={{ minWidth: 0, flex: 1 }}>
-                        <FileTextOutlined style={{ color: 'var(--accent)' }} />
-                        <Typography.Text ellipsis style={{ maxWidth: 200 }}>{f.name}</Typography.Text>
-                        <Tag style={{ marginInlineEnd: 0 }}>{f.file_type}</Tag>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {fmtSize(f.size)}
-                        </Typography.Text>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          上传于 {fmtTime(f.created_at)}
-                        </Typography.Text>
-                      </Space>
-                      <Space size={2}>
-                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openRename('file', f.id, f.name)}>
-                          重命名
-                        </Button>
-                        <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openPreview(f)}>
-                          预览
-                        </Button>
-                        <Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => downloadFile(f)}>
-                          下载
-                        </Button>
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteFile(f)}>
-                          删除
-                        </Button>
-                      </Space>
+                      <span style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <FileTextOutlined style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                        <Typography.Text ellipsis style={{ flex: '1 1 0', minWidth: 0 }}>{f.name}</Typography.Text>
+                        <Tag style={{ marginInlineEnd: 0, flexShrink: 0 }}>{f.file_type}</Tag>
+                        <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{fmtSize(f.size)}</Typography.Text>
+                      </span>
+                      <span style={{ width: 150, flexShrink: 0, fontSize: 12, color: 'var(--text-soft)' }}>
+                        {fmtTime(f.created_at)}
+                      </span>
+                      <span style={{ width: 80, flexShrink: 0, textAlign: 'right' }}>
+                        <Dropdown
+                          trigger={['click']}
+                          menu={{
+                            items: [
+                              { key: 'preview', icon: <EyeOutlined />, label: '预览' },
+                              { key: 'download', icon: <DownloadOutlined />, label: '下载' },
+                              { type: 'divider' },
+                              { key: 'rename', icon: <EditOutlined />, label: '重命名' },
+                              { type: 'divider' },
+                              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+                            ],
+                            onClick: ({ key, domEvent }) => {
+                              domEvent.stopPropagation()
+                              if (key === 'preview') openPreview(f)
+                              if (key === 'download') downloadFile(f)
+                              if (key === 'rename') openRename('file', f.id, f.name)
+                              if (key === 'delete') doDeleteFile(f)
+                            },
+                          }}
+                        >
+                          <Button type="text" size="small" icon={<MoreOutlined />} />
+                        </Dropdown>
+                      </span>
                     </div>
                   ))}
                 </>
