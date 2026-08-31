@@ -53,3 +53,33 @@ func SaveArticleVersion(ctx context.Context, ver *model.ArticleVersion, sentence
 		return nil
 	})
 }
+
+// GetLatestArticleVersion 取稿件最新版本快照。
+func GetLatestArticleVersion(ctx context.Context, articleID uint64) (*model.ArticleVersion, error) {
+	var v model.ArticleVersion
+	if err := GetDB().WithContext(ctx).Where("article_id = ?", articleID).
+		Order("version_no DESC").First(&v).Error; err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// ListArticleSentences 列出某版本的全部句子。
+func ListArticleSentences(ctx context.Context, versionID uint64) ([]model.ArticleSentence, error) {
+	var list []model.ArticleSentence
+	if err := GetDB().WithContext(ctx).Where("article_version_id = ?", versionID).
+		Order("sentence_index ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// ListArticleBindings 列出某版本的全部证据绑定。
+func ListArticleBindings(ctx context.Context, versionID uint64) ([]model.EvidenceBinding, error) {
+	var list []model.EvidenceBinding
+	if err := GetDB().WithContext(ctx).Where("article_version_id = ?", versionID).
+		Order("article_sentence_id ASC, order_no ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}

@@ -46,3 +46,12 @@ func ListDirs(ctx context.Context, tenantID uint64, scope string, ownerUserID, p
 
 // EnsureDirNotFound 判断目录不存在的错误。
 func EnsureDirNotFound(err error) bool { return err == gorm.ErrRecordNotFound }
+
+// SoftDeleteDir 软删除目录（仅本 scope 归属者可操作）。
+func SoftDeleteDir(ctx context.Context, tenantID uint64, scope string, ownerUserID, dirID uint64) error {
+	q := GetDB().WithContext(ctx).Where("id = ? AND tenant_id = ? AND scope = ?", dirID, tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	return q.Delete(&model.KbaseDir{}).Error
+}

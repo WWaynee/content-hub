@@ -121,3 +121,13 @@ func MarkVersionFail(ctx context.Context, versionID uint64, errMsg string) error
 func UpdateVersionStatus(ctx context.Context, versionID uint64, status string) error {
 	return GetDB().WithContext(ctx).Model(&model.DocVersion{}).Where("id = ?", versionID).Update("status", status).Error
 }
+
+// SoftDeleteFile 软删除文件（active=0，不再可见可检索，物理数据保留）。
+func SoftDeleteFile(ctx context.Context, tenantID uint64, scope string, ownerUserID, fileID uint64) error {
+	q := GetDB().WithContext(ctx).Model(&model.KbaseFile{}).
+		Where("id = ? AND tenant_id = ? AND scope = ?", fileID, tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	return q.Update("active", 0).Error
+}

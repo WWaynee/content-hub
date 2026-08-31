@@ -111,9 +111,21 @@ func PresignDownloadURL(objectKey, filename string, expiry time.Duration) (strin
 	if filename != "" {
 		disposition += "; filename=\"" + filename + "\""
 	}
+	return presignObject(objectKey, expiry, disposition)
+}
+
+// PresignPreviewURL 生成预签名预览 URL（inline，浏览器直接打开）。
+func PresignPreviewURL(objectKey string, expiry time.Duration) (string, error) {
+	return presignObject(objectKey, expiry, "inline")
+}
+
+func presignObject(objectKey string, expiry time.Duration, disposition string) (string, error) {
+	if OSSClient == nil {
+		return "", fmt.Errorf("OSS 客户端未初始化")
+	}
 	req := &oss.GetObjectRequest{
-		Bucket:                   oss.Ptr(getBucket()),
-		Key:                      oss.Ptr(objectKey),
+		Bucket:                     oss.Ptr(getBucket()),
+		Key:                        oss.Ptr(objectKey),
 		ResponseContentDisposition: oss.Ptr(disposition),
 	}
 	result, err := OSSClient.Presign(context.Background(), req, oss.PresignExpiration(time.Now().Add(expiry)))

@@ -30,6 +30,36 @@ func NewRouter() *gin.Engine {
 	{
 		priv.POST("/user/register", handler.RegisterMember)
 		priv.GET("/user/profile", handler.Profile)
+
+		// 工作区
+		priv.GET("/workspaces", handler.ListWorkspaces)
+		priv.POST("/workspaces", handler.CreateWorkspace)
+		priv.DELETE("/workspaces/:id", handler.DeleteWorkspace)
+
+		// 需求单
+		priv.GET("/workspaces/:workspace_id/requirement", handler.GetRequirement)
+		priv.PUT("/requirements/:id", handler.UpdateRequirement)
+		priv.PUT("/requirements/:id/scope", handler.SaveRequirementScope)
+
+		// 知识库
+		priv.GET("/kbase/dir", handler.ListKbaseDir)
+		priv.POST("/kbase/dir", handler.CreateKbaseDir)
+		priv.DELETE("/kbase/dir/:id", handler.DeleteKbaseDir)
+		priv.POST("/kbase/file", handler.UploadFile)
+		priv.DELETE("/kbase/file/:id", handler.DeleteKbaseFile)
+		priv.GET("/kbase/file/:id/preview", handler.PreviewFile)
+		priv.GET("/kbase/file/:id/download", handler.DownloadFile)
+
+		// 稿件
+		priv.POST("/workspaces/:workspace_id/generate", handler.GenerateArticle)
+		priv.GET("/workspaces/:workspace_id/article", handler.GetArticle)
+		priv.GET("/articles/:article_version_id/export", handler.ExportArticle)
+
+		// 知识库问答
+		priv.GET("/qa/sessions", handler.ListQASessions)
+		priv.POST("/qa/sessions", handler.CreateQASession)
+		priv.POST("/qa/sessions/:session_id/ask", handler.AskQA)
+		priv.GET("/qa/sessions/:session_id/messages", handler.GetQAMessages)
 	}
 
 	return r

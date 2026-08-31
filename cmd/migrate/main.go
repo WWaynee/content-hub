@@ -35,6 +35,8 @@ func main() {
 		&model.Conversation{}, &model.ConversationMessage{},
 		// 检索快照（阶段6）
 		&model.RetrievalBatch{}, &model.RetrievalBatchItem{},
+		// 知识库问答（阶段7）
+		&model.QASession{}, &model.QAMessage{},
 		// 支撑
 		&model.AgentTask{}, &model.AuditLog{},
 	}
