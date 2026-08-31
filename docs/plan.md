@@ -52,7 +52,7 @@
 - [x] 知识检索 agent（方案乙：LLM 提炼 query → 单次 SearchKbase → 去重汇总，限定勾选范围）
 - [x] 稿件撰写 agent（结构化生成 Article，句级证据绑定）
 - [x] 证据整理 agent（格式化证据清单，不重检）
-- [~] 需求对话 agent：已实现"自然语言→结构化操作"骨架；待升级为「统一入口 + DialoguePlan 多动作计划 + 字段白名单硬拦截」（见阶段6）
+- [x] 需求对话 agent：升级为「统一入口 + DialoguePlan 多动作计划 + 字段白名单硬拦截 + JSON Schema 机检」（已真实测试通过）
 - [x] Orchestrator（generation 工作流已跑通；revision 编排待阶段6）
 
 ## 阶段 6 · 工作区 / 需求单 / 稿件 / 会话 / 导出（下一步）
