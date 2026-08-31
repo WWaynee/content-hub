@@ -96,8 +96,11 @@ func (d *Dispatcher) execAction(ctx context.Context, tenantID, userID, workspace
 		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("已修订第 %d 句", ac.TargetSentenceIndex)}
 
 	case "append_article_content":
-		// 一期：追加内容按全量重新生成落实（revision 追加的完整支持后续补）
-		return ActionResult{Tool: ac.Tool, Success: false, Message: "追加段落暂未实现，请通过需求单调整后重新生成"}
+		// 追加段落：LLM 生成追加内容 + 检索证据 + 落新快照
+		if _, err := AppendArticleContent(ctx, tenantID, workspaceID, ac.Instruction); err != nil {
+			return ActionResult{Tool: ac.Tool, Success: false, Message: err.Error()}
+		}
+		return ActionResult{Tool: ac.Tool, Success: true, Message: "已追加段落"}
 
 	default:
 		return ActionResult{Tool: ac.Tool, Success: false, Message: "未知工具 " + ac.Tool}

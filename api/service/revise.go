@@ -252,3 +252,153 @@ func hitsToEvidence(hits []KbaseHit) []agent.Evidence {
 	}
 	return out
 }
+
+// AppendArticleContent 追加段落：LLM 生成追加内容 → 检索证据 → 追加到稿件末尾 → 落新快照。
+// 现有句子全部继承（文本+证据），追加的新句子带新检索到的证据。
+func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, instruction string) (uint64, error) {
+	a, err := storage.GetArticleByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("稿件不存在")
+	}
+	prev, err := storage.GetLatestArticleVersion(ctx, a.ID)
+	if err != nil {
+		return 0, fmt.Errorf("稿件版本不存在")
+	}
+	sents, err := storage.ListArticleSentences(ctx, prev.ID)
+	if err != nil {
+		return 0, err
+	}
+	binds, err := storage.ListArticleBindings(ctx, prev.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	// LLM 生成追加内容（一句话或几句话）
+	newText, err := appendContentLLM(ctx, instruction)
+	if err != nil {
+		return 0, err
+	}
+
+	// 对追加内容检索证据
+	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("需求单不存在")
+	}
+	fileIDs, err := RequirementFileIDScope(ctx, tenantID, req.ID)
+	if err != nil {
+		return 0, err
+	}
+	hits, err := SearchKbaseSentences(ctx, tenantID, newText, fileIDs...)
+	if err != nil {
+		return 0, err
+	}
+	newEvidence := hitsToEvidence(hits)
+
+	// 现有句子绑定按 sentence_id 分组（继承）
+	bindBySent := map[uint64][]model.EvidenceBinding{}
+	for _, b := range binds {
+		bindBySent[b.ArticleSentenceID] = append(bindBySent[b.ArticleSentenceID], b)
+	}
+
+	// 组装完整新句子列表：现有句子（继承绑定）+ 追加句（新证据）
+	type draft struct {
+		content string
+		binds   []model.EvidenceBinding
+	}
+	oldSentenceID := make([]uint64, len(sents))
+	drafts := make([]draft, 0, len(sents)+1)
+	for i, s := range sents {
+		oldSentenceID[i] = s.ID
+		inherited := bindBySent[s.ID]
+		for j := range inherited {
+			inherited[j].ID = 0
+			inherited[j].ArticleVersionID = 0
+			inherited[j].ArticleSentenceID = 0
+		}
+		drafts = append(drafts, draft{content: s.Content, binds: inherited})
+	}
+	// 追加句的绑定：取前 3 条新证据
+	appendBinds := []model.EvidenceBinding{}
+	for i, e := range newEvidence {
+		if i >= 3 {
+			break
+		}
+		appendBinds = append(appendBinds, model.EvidenceBinding{
+			TenantID:       tenantID,
+			SourceType:     "knowledge",
+			DocFileID:      e.FileID,
+			DocSentenceID:  e.DocSentenceID,
+			EvidenceStatus: "bound",
+			OrderNo:        i,
+		})
+	}
+	drafts = append(drafts, draft{content: newText, binds: appendBinds})
+
+	newVer := &model.ArticleVersion{
+		ArticleID:         a.ID,
+		WorkspaceID:       workspaceID,
+		TenantID:          tenantID,
+		VersionNo:         prev.VersionNo + 1,
+		FullContent:       buildAppendedContent(sents, newText),
+		Status:            "completed",
+		ReferencedVersion: int(prev.VersionNo),
+	}
+
+	err = storage.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newVer).Error; err != nil {
+			return err
+		}
+		newSents := make([]model.ArticleSentence, len(drafts))
+		for i, d := range drafts {
+			newSents[i] = model.ArticleSentence{
+				ArticleVersionID: newVer.ID,
+				WorkspaceID:      workspaceID,
+				TenantID:         tenantID,
+				SentenceIndex:    i,
+				Content:          d.content,
+			}
+		}
+		if err := tx.Create(&newSents).Error; err != nil {
+			return err
+		}
+		for i, d := range drafts {
+			for _, b := range d.binds {
+				b.ArticleVersionID = newVer.ID
+				b.ArticleSentenceID = newSents[i].ID
+				if err := tx.Create(&b).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("落追加快照失败: %w", err)
+	}
+	return newVer.ID, nil
+}
+
+// appendContentLLM 调 LLM 生成一段追加内容。
+func appendContentLLM(ctx context.Context, instruction string) (string, error) {
+	llm := llmclient.NewClient()
+	prompt := fmt.Sprintf("请根据下面的要求，为稿件追加一段内容（一段话，可含多个句子）。\n\n要求：%s\n\n只返回 JSON：{\"text\":\"追加的段落内容\"}", instruction)
+	var out struct {
+		Text string `json:"text"`
+	}
+	if err := llm.ChatWithJSON(ctx, []llmclient.ChatMessage{{Role: "user", Content: prompt}}, &out); err != nil {
+		return "", fmt.Errorf("追加内容生成失败: %w", err)
+	}
+	if out.Text == "" {
+		return "", fmt.Errorf("LLM 未返回追加内容")
+	}
+	return out.Text, nil
+}
+
+func buildAppendedContent(sents []model.ArticleSentence, appended string) string {
+	var sb strings.Builder
+	for _, s := range sents {
+		sb.WriteString(s.Content)
+	}
+	sb.WriteString(appended)
+	return sb.String()
+}
