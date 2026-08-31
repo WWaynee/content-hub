@@ -1,78 +1,93 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { Card, Form, Input, Button, Segmented, Typography, App } from 'antd'
 
 export default function Login() {
   const navigate = useNavigate()
+  const { message } = App.useApp()
   const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [loading, setLoading] = useState(false)
+  const [form] = Form.useForm()
 
-  // 登录字段
-  const [tenantId, setTenantId] = useState('')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  // 注册字段
-  const [regName, setRegName] = useState('')
-  const [regAdmin, setRegAdmin] = useState('')
-  const [regPass, setRegPass] = useState('')
-
-  const [err, setErr] = useState('')
-
-  const doLogin = async () => {
-    setErr('')
+  const doSubmit = async () => {
+    const values = form.getFieldsValue()
+    setLoading(true)
     try {
-      const data: any = await axios.post('/api/user/login', {
-        tenant_id: Number(tenantId),
-        username,
-        password,
-      })
+      let data: any
+      if (mode === 'login') {
+        const resp: any = await axios.post('/api/user/login', {
+          tenant_id: Number(values.tenant_id),
+          username: values.username,
+          password: values.password,
+        })
+        data = resp.data
+      } else {
+        const resp: any = await axios.post('/api/tenant/register', {
+          name: values.reg_name,
+          admin_name: values.reg_admin,
+          admin_passwd: values.reg_pass,
+        })
+        data = resp.data
+      }
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify(data.user))
+      message.success(mode === 'login' ? '登录成功' : '租户注册成功')
       navigate('/workspaces')
     } catch (e: any) {
-      setErr(e.response?.data?.message || e.message || '登录失败')
-    }
-  }
-
-  const doRegister = async () => {
-    setErr('')
-    try {
-      const data: any = await axios.post('/api/tenant/register', {
-        name: regName,
-        admin_name: regAdmin,
-        admin_passwd: regPass,
-      })
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('user', JSON.stringify(data.user))
-      navigate('/workspaces')
-    } catch (e: any) {
-      setErr(e.response?.data?.message || e.message || '注册失败')
+      message.error(e.response?.data?.message || e.message || '操作失败')
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
-    <div style={{ maxWidth: 420, margin: '80px auto', padding: 24 }}>
-      <h2>content-hub 登录</h2>
-      <div style={{ marginBottom: 16 }}>
-        <button onClick={() => setMode('login')} disabled={mode === 'login'}>登录</button>
-        <button onClick={() => setMode('register')} disabled={mode === 'register'} style={{ marginLeft: 8 }}>注册租户</button>
-      </div>
-
-      {mode === 'login' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <input placeholder="租户 ID" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
-          <input placeholder="用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <input placeholder="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button onClick={doLogin}>登录</button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <input placeholder="租户名称" value={regName} onChange={(e) => setRegName(e.target.value)} />
-          <input placeholder="管理员用户名" value={regAdmin} onChange={(e) => setRegAdmin(e.target.value)} />
-          <input placeholder="管理员密码" type="password" value={regPass} onChange={(e) => setRegPass(e.target.value)} />
-          <button onClick={doRegister}>注册并登录</button>
-        </div>
-      )}
-      {err && <p style={{ color: 'red' }}>{err}</p>}
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
+      <Card style={{ width: 400, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <Typography.Title level={3} style={{ textAlign: 'center', marginTop: 0 }}>
+          content-hub
+        </Typography.Title>
+        <Segmented
+          block
+          value={mode}
+          onChange={(v) => setMode(v as 'login' | 'register')}
+          options={[
+            { label: '登录', value: 'login' },
+            { label: '注册租户', value: 'register' },
+          ]}
+          style={{ marginBottom: 24 }}
+        />
+        <Form form={form} layout="vertical" onFinish={doSubmit}>
+          {mode === 'login' ? (
+            <>
+              <Form.Item label="租户 ID" name="tenant_id" rules={[{ required: true, message: '请输入租户ID' }]}>
+                <Input placeholder="租户 ID" />
+              </Form.Item>
+              <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}>
+                <Input placeholder="用户名" />
+              </Form.Item>
+              <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password placeholder="密码" />
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Form.Item label="租户名称" name="reg_name" rules={[{ required: true, message: '请输入租户名称' }]}>
+                <Input placeholder="单位名称" />
+              </Form.Item>
+              <Form.Item label="管理员用户名" name="reg_admin" rules={[{ required: true, message: '请输入管理员用户名' }]}>
+                <Input placeholder="管理员用户名" />
+              </Form.Item>
+              <Form.Item label="管理员密码" name="reg_pass" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password placeholder="管理员密码" />
+              </Form.Item>
+            </>
+          )}
+          <Button type="primary" htmlType="submit" block loading={loading} style={{ marginTop: 8 }}>
+            {mode === 'login' ? '登录' : '注册并登录'}
+          </Button>
+        </Form>
+      </Card>
     </div>
   )
 }

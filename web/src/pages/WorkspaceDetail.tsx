@@ -1,5 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import {
+  Tabs,
+  Form,
+  Input,
+  Select,
+  Button,
+  App,
+  Descriptions,
+  Tag,
+  Card,
+  Typography,
+  Divider,
+} from 'antd'
+import { SendOutlined } from '@ant-design/icons'
 import api from '../api'
 import type { Requirement, Article } from '../types'
 import { PLATFORMS } from '../types'
@@ -7,39 +21,70 @@ import { PLATFORMS } from '../types'
 export default function WorkspaceDetail() {
   const { id } = useParams()
   const wid = Number(id)
-  const [phase, setPhase] = useState<'requirement' | 'article'>('requirement')
+  const { message } = App.useApp()
 
   const [req, setReq] = useState<Requirement | null>(null)
   const [article, setArticle] = useState<Article | null>(null)
   const [generating, setGenerating] = useState(false)
   const [exported, setExported] = useState('')
-
-  // 对话
   const [chat, setChat] = useState('')
+  const [sending, setSending] = useState(false)
+  const [form] = Form.useForm()
 
-  const loadReq = async () => {
+  const loadReq = useCallback(async () => {
     const r = (await api.get(`/workspaces/${wid}/requirement`)) as any
     setReq(r)
-  }
-  const loadArticle = async () => {
+    form.setFieldsValue({
+      title: r.title,
+      tags: (r.tags || []).join(','),
+      platforms: r.platforms || [],
+      style_tone: r.style_tone,
+      style_emotion: r.style_emotion,
+      style_audience: r.style_audience,
+      style_purpose: r.style_purpose,
+      style_subject: r.style_subject,
+      style_taboo: r.style_taboo,
+      word_count: r.word_count,
+      chapter_requirement: r.chapter_requirement,
+    })
+  }, [wid, form])
+  const loadArticle = useCallback(async () => {
     try {
       const a = (await api.get(`/workspaces/${wid}/article`)) as any
       setArticle(a)
     } catch {
       setArticle(null)
     }
-  }
+  }, [wid])
 
   useEffect(() => {
     loadReq()
     loadArticle()
-  }, [wid])
+  }, [loadReq, loadArticle])
 
   const saveReq = async () => {
     if (!req) return
-    await api.put(`/requirements/${req.id}`, req)
-    alert('已保存')
-    loadReq()
+    const v = form.getFieldsValue()
+    try {
+      await api.put(`/requirements/${req.id}`, {
+        ...req,
+        title: v.title,
+        tags: (v.tags || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+        platforms: v.platforms || [],
+        style_tone: v.style_tone,
+        style_emotion: v.style_emotion,
+        style_audience: v.style_audience,
+        style_purpose: v.style_purpose,
+        style_subject: v.style_subject,
+        style_taboo: v.style_taboo,
+        word_count: Number(v.word_count),
+        chapter_requirement: v.chapter_requirement,
+      })
+      message.success('需求单已保存')
+      loadReq()
+    } catch (e: any) {
+      message.error(e.message || '保存失败')
+    }
   }
 
   const generate = async () => {
@@ -47,9 +92,9 @@ export default function WorkspaceDetail() {
     try {
       await api.post(`/workspaces/${wid}/generate`)
       await loadArticle()
-      setPhase('article')
+      message.success('稿件已生成')
     } catch (e: any) {
-      alert('生成失败: ' + (e.message || ''))
+      message.error('生成失败: ' + (e.message || ''))
     } finally {
       setGenerating(false)
     }
@@ -59,107 +104,183 @@ export default function WorkspaceDetail() {
     if (!article) return
     const r = (await api.get(`/articles/${article.article_version_id}/export`)) as any
     setExported(r.markdown)
+    message.success('已导出')
   }
 
   const sendChat = async () => {
     if (!chat || !req) return
+    setSending(true)
     try {
-      const r = (await api.post(`/workspaces/${wid}/chat`, { message: chat, target_type: 'requirement_field', target_ref: req.id })) as any
-      // 展示派发结果
-      const summary = (r?.results || []).map((x: any) => `${x.tool}:${x.success ? '成功' : '失败'}(${x.message})`).join('\n')
-      alert('对话处理结果：\n' + (summary || '无动作'))
+      const r = (await api.post(`/workspaces/${wid}/chat`, {
+        message: chat,
+        target_type: 'requirement_field',
+        target_ref: req.id,
+      })) as any
+      const summary = (r?.results || [])
+        .map((x: any) => `${x.tool}:${x.success ? '成功' : '失败'}(${x.message})`)
+        .join('\n')
+      message.info('对话处理结果：\n' + (summary || '无动作'))
       setChat('')
-      loadReq() // 刷新需求单（对话可能改了字段）
+      loadReq()
     } catch (e: any) {
-      alert('对话失败: ' + (e.message || ''))
+      message.error('对话失败: ' + (e.message || ''))
+    } finally {
+      setSending(false)
     }
   }
 
-  const setReqField = (k: keyof Requirement, v: any) => {
-    setReq((r) => (r ? { ...r, [k]: v } : r))
-  }
+  const tabItems = [
+    {
+      key: 'requirement',
+      label: '需求单',
+      children: (
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ maxWidth: 640 }}
+          initialValues={{ word_count: 0 }}
+        >
+          <Form.Item label="标题" name="title" rules={[{ required: true, message: '请填写标题' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item label="标签（逗号分隔）" name="tags">
+            <Input placeholder="如：招生, 政策" />
+          </Form.Item>
+          <Form.Item label="发布平台" name="platforms">
+            <Select mode="multiple" allowClear placeholder="选择发布平台" options={PLATFORMS.map((p) => ({ label: p, value: p }))} />
+          </Form.Item>
+          <Form.Item label="基调" name="style_tone">
+            <Input placeholder="如：正式" />
+          </Form.Item>
+          <Form.Item label="感情色彩" name="style_emotion">
+            <Input placeholder="如：积极" />
+          </Form.Item>
+          <Form.Item label="目标受众" name="style_audience">
+            <Input placeholder="如：考生及家长" />
+          </Form.Item>
+          <Form.Item label="发文目的" name="style_purpose">
+            <Input placeholder="如：发布招生政策" />
+          </Form.Item>
+          <Form.Item label="发文主体" name="style_subject">
+            <Input placeholder="如：学校" />
+          </Form.Item>
+          <Form.Item label="禁忌/约束" name="style_taboo">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="字数要求" name="word_count">
+            <Input type="number" />
+          </Form.Item>
+          <Form.Item label="章节要求" name="chapter_requirement">
+            <Input.TextArea rows={3} placeholder="如：包含报名条件和录取规则" />
+          </Form.Item>
+          <SpaceCombo
+            onSave={saveReq}
+            onGenerate={generate}
+            generating={generating}
+          />
+        </Form>
+      ),
+    },
+    {
+      key: 'article',
+      label: '稿件',
+      children: article ? (
+        <div>
+          <SpaceCombo
+            onExport={doExport}
+            onGenerate={generate}
+            generating={generating}
+          />
+          {exported && (
+            <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
+              <Typography.Paragraph
+                style={{ whiteSpace: 'pre-wrap' }}
+                copyable={{ text: exported }}
+              >
+                {exported}
+              </Typography.Paragraph>
+            </Card>
+          )}
+          <Divider titlePlacement="left">正文</Divider>
+          <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{article.full_content}</Typography.Paragraph>
+          <Divider titlePlacement="left">句子（含证据）</Divider>
+          {article.sentences.map((s) => {
+            const bindings = article.bindings.filter((b) => b.article_sentence_id === s.id)
+            return (
+              <div key={s.id} style={{ marginBottom: 8 }}>
+                <Typography.Text>{s.content}</Typography.Text>
+                {bindings.length > 0 && (
+                  <Tag color="blue" style={{ marginLeft: 8 }}>
+                    证据 x{bindings.length}
+                  </Tag>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <Typography.Text type="secondary">
+          尚未生成稿件，请先在「需求单」页签填好需求并点击「生成稿件」。
+        </Typography.Text>
+      ),
+    },
+  ]
 
   return (
-    <div style={{ display: 'flex', height: '100%' }}>
-      {/* 左侧阶段切换 */}
-      <div style={{ width: 120, borderRight: '1px solid #eee' }}>
-        <button onClick={() => setPhase('requirement')} disabled={phase === 'requirement'}>需求</button>
-        <button onClick={() => setPhase('article')} disabled={phase === 'article'}>稿件</button>
-      </div>
-
-      {/* 主内容 */}
-      <div style={{ flex: 1, padding: '0 16px' }}>
-        {phase === 'requirement' && req && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 600 }}>
-            <label>标题</label>
-            <input value={req.title} onChange={(e) => setReqField('title', e.target.value)} />
-            <label>标签（逗号分隔）</label>
-            <input value={(req.tags || []).join(',')} onChange={(e) => setReqField('tags', e.target.value.split(','))} />
-            <label>发布平台</label>
-            <select multiple value={req.platforms || []} onChange={(e) => setReqField('platforms', Array.from(e.target.selectedOptions, (o) => o.value))}>
-              {PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <label>基调</label>
-            <input value={req.style_tone} onChange={(e) => setReqField('style_tone', e.target.value)} />
-            <label>感情色彩</label>
-            <input value={req.style_emotion} onChange={(e) => setReqField('style_emotion', e.target.value)} />
-            <label>目标受众</label>
-            <input value={req.style_audience} onChange={(e) => setReqField('style_audience', e.target.value)} />
-            <label>发文目的</label>
-            <input value={req.style_purpose} onChange={(e) => setReqField('style_purpose', e.target.value)} />
-            <label>发文主体</label>
-            <input value={req.style_subject} onChange={(e) => setReqField('style_subject', e.target.value)} />
-            <label>禁忌/约束</label>
-            <textarea value={req.style_taboo} onChange={(e) => setReqField('style_taboo', e.target.value)} />
-            <label>字数要求</label>
-            <input type="number" value={req.word_count} onChange={(e) => setReqField('word_count', Number(e.target.value))} />
-            <label>章节要求</label>
-            <textarea value={req.chapter_requirement} onChange={(e) => setReqField('chapter_requirement', e.target.value)} />
-
-            <div>
-              <button onClick={saveReq}>保存需求单</button>
-              <button onClick={generate} disabled={generating} style={{ marginLeft: 8 }}>
-                {generating ? '生成中...' : '生成稿件'}
-              </button>
-            </div>
-          </div>
+    <div>
+      <Descriptions size="small" style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="工作区 ID">#{wid}</Descriptions.Item>
+        {req && (
+          <>
+            <Descriptions.Item label="版本">v{req.version}</Descriptions.Item>
+            <Descriptions.Item label="需求标题">{req.title || '—'}</Descriptions.Item>
+          </>
         )}
+      </Descriptions>
 
-        {phase === 'article' && (
-          <div>
-            {article ? (
-              <div>
-                <h2>{article.title}</h2>
-                <button onClick={doExport}>导出</button>
-                {exported && (
-                  <pre style={{ whiteSpace: 'pre-wrap', border: '1px solid #eee', padding: 12, background: '#fafafa' }}>{exported}</pre>
-                )}
-                <h3>正文</h3>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{article.full_content}</div>
-                <h3>句子（含证据）</h3>
-                {article.sentences.map((s) => {
-                  const bindings = article.bindings.filter((b) => b.article_sentence_id === s.id)
-                  return (
-                    <div key={s.id}>
-                      {s.content}
-                      {bindings.length > 0 && <span style={{ color: '#2563eb' }}> ← 证据 x{bindings.length}</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p>尚未生成稿件，请先在需求阶段点击「生成稿件」</p>
-            )}
-          </div>
-        )}
-      </div>
+      <Tabs items={tabItems} />
 
-      {/* 右侧对话 */}
-      <div style={{ width: 280, borderLeft: '1px solid #eee', padding: 8 }}>
-        <strong>对话</strong>
-        <textarea style={{ width: '100%', height: 160 }} value={chat} onChange={(e) => setChat(e.target.value)} />
-        <button onClick={sendChat} style={{ width: '100%' }}>发送</button>
+      <Divider titlePlacement="left">需求对话（AI 修改需求单字段）</Divider>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 }}>
+        <Input.TextArea
+          rows={3}
+          placeholder="如：把基调改成严谨"
+          value={chat}
+          onChange={(e) => setChat(e.target.value)}
+        />
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          loading={sending}
+          onClick={sendChat}
+          style={{ alignSelf: 'flex-end' }}
+        >
+          发送
+        </Button>
       </div>
+    </div>
+  )
+}
+
+function SpaceCombo(props: {
+  onSave?: () => void
+  onGenerate?: () => void
+  onExport?: () => void
+  generating?: boolean
+}) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {props.onGenerate && (
+        <Button type="primary" loading={props.generating} onClick={props.onGenerate} style={{ marginRight: 8 }}>
+          生成稿件
+        </Button>
+      )}
+      {props.onSave && (
+        <Button onClick={props.onSave} style={{ marginRight: 8 }}>
+          保存需求单
+        </Button>
+      )}
+      {props.onExport && <Button onClick={props.onExport}>导出（含证据清单）</Button>}
     </div>
   )
 }
