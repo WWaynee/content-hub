@@ -37,6 +37,18 @@ func ListChunksByVersion(ctx context.Context, tenantID, fileID uint64, versionMd
 	return list, nil
 }
 
+// GetChunkByVersionIndex 按 file+version+chunk_index 查单个切片。
+func GetChunkByVersionIndex(ctx context.Context, tenantID, fileID uint64, versionMd5 string, chunkIndex int) (*model.DocChunk, error) {
+	var c model.DocChunk
+	if err := GetDB().WithContext(ctx).
+		Where("tenant_id = ? AND file_id = ? AND version_md5 = ? AND chunk_index = ?",
+			tenantID, fileID, versionMd5, chunkIndex).
+		First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // ListSentencesByChunk 列出某切片下的全部句子。
 func ListSentencesByChunk(ctx context.Context, chunkID uint64) ([]model.DocSentence, error) {
 	var list []model.DocSentence

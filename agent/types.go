@@ -4,14 +4,16 @@
 // 数据契约对应 docs/architecture/architecture.md §4。
 package agent
 
-// Evidence 知识检索 agent 输出的证据素材（一条引用来源）。
+// Evidence 知识检索 agent 输出的证据素材（一次检索命中的「句子级」证据，方案一）。
 type Evidence struct {
-	FileID       uint64  // 来源文档
-	VersionMd5   string  // 版本
-	ChunkIndex   int     // 切片序号
-	ChapterTitle string  // 章节标题（可空）
-	SourceText   string  // 原文原话片段（不加工）
-	Score        float32 // 相似度
+	FileID        uint64  // 来源文档
+	DocSentenceID uint64  // 来源文档句 ID（句子级锚点）
+	ChunkID       uint64  // 所属切片 ID
+	VersionMd5    string  // 版本
+	ChunkIndex    int     // 切片序号
+	ChapterTitle  string  // 章节标题（可空）
+	SourceText    string  // 原文原话片段（句子级，不加工）
+	Score         float32 // 相似度
 }
 
 // Requirement 需求单（精简版，供 agent 使用）。

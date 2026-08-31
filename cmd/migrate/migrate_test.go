@@ -26,6 +26,7 @@ func TestTablesExist(t *testing.T) {
 		"workspaces", "requirements", "requirement_scope",
 		"articles", "article_versions", "article_sentences", "evidence_bindings",
 		"conversations", "conversation_messages",
+		"retrieval_batches", "retrieval_batch_items",
 		"agent_tasks", "audit_logs",
 	}
 	have := map[string]bool{}

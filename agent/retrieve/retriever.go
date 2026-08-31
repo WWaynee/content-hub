@@ -35,27 +35,27 @@ func (r *Retriever) Retrieve(ctx context.Context, req agent.RetrieveRequest) (*a
 		plan.Queries = []string{req.Requirement.Title + " " + req.Requirement.ChapterRequirement}
 	}
 
-	// 2. 每个 query 单次检索 + 去重
-	seen := map[string]bool{}
+	// 2. 每个 query 单次检索（句子级展开）+ 去重
+	seen := map[uint64]bool{} // 按 doc_sentence_id 去重（句子级锚点）
 	var evidence []agent.Evidence
 	for _, q := range plan.Queries {
-		evs, err := service.SearchKbase(ctx, req.TenantID, q, req.FileIDs...)
+		hits, err := service.SearchKbaseSentences(ctx, req.TenantID, q, req.FileIDs...)
 		if err != nil {
 			return nil, fmt.Errorf("检索 query %q 失败: %w", q, err)
 		}
-		for _, e := range evs {
-			key := fmt.Sprintf("%d:%s:%d", e.FileID, e.VersionMd5, e.ChunkIndex)
-			if seen[key] {
+		for _, h := range hits {
+			if seen[h.DocSentenceID] {
 				continue
 			}
-			seen[key] = true
+			seen[h.DocSentenceID] = true
 			evidence = append(evidence, agent.Evidence{
-				FileID:       e.FileID,
-				VersionMd5:   e.VersionMd5,
-				ChunkIndex:   e.ChunkIndex,
-				ChapterTitle: e.ChapterTitle,
-				SourceText:   e.SourceText,
-				Score:        e.Score,
+				FileID:        h.FileID,
+				DocSentenceID: h.DocSentenceID,
+				ChunkID:       h.ChunkID,
+				VersionMd5:    h.VersionMd5,
+				ChapterTitle:  h.ChapterTitle,
+				SourceText:    h.SourceText,
+				Score:         h.Score,
 			})
 		}
 	}

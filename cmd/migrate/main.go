@@ -33,6 +33,8 @@ func main() {
 		&model.EvidenceBinding{},
 		// 会话
 		&model.Conversation{}, &model.ConversationMessage{},
+		// 检索快照（阶段6）
+		&model.RetrievalBatch{}, &model.RetrievalBatchItem{},
 		// 支撑
 		&model.AgentTask{}, &model.AuditLog{},
 	}
@@ -40,7 +42,7 @@ func main() {
 	if err := db.AutoMigrate(models...); err != nil {
 		log.Fatalf("AutoMigrate 失败: %v", err)
 	}
-	fmt.Println("迁移完成：18 张表已建/已同步。")
+	fmt.Println("迁移完成：表已建/已同步。")
 
 	// 列出实际表验证
 	var tables []string

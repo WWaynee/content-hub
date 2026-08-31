@@ -86,3 +86,36 @@ func buildWritingPrompt(req agent.WritingRequest) string {
 	sb.WriteString("\n每句话如果引用了资料，就在 evidence_refs 里列出对应编号；没有引用的句子 evidence_refs 为空数组。引用资料时尽量用原文数据/条款，不要凭空编造。")
 	return sb.String()
 }
+
+// RewriteSentence 句子级重写：只重写指定句子，返回新句子文本 + 该句引用的证据索引。
+// 实现 orchestrator.SentenceRewriter 接口。
+func (w *Writer) RewriteSentence(ctx context.Context, req agent.WritingRequest, targetIndex int, instruction string) (string, []uint64, error) {
+	// 拍平当前稿件句子，向 LLM 提供上下文
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("请重写稿件中的第 %d 个句子（从 0 起）。\n\n", targetIndex))
+	sb.WriteString("【修改要求】\n" + instruction + "\n\n")
+	sb.WriteString("【检索资料】（编号 0 起，引用用 evidence_refs）\n")
+	for i, e := range req.Evidence {
+		sb.WriteString(fmt.Sprintf("[%d] %s\n", i, e.SourceText))
+	}
+	sb.WriteString("\n只返回 JSON：{\"text\":\"重写后的句子\",\"evidence_refs\":[引用资料编号数组]}")
+	sb.WriteString("\n如果没有引用资料，evidence_refs 为 []。不要写数据集之外的数据。")
+
+	var out struct {
+		Text         string `json:"text"`
+		EvidenceRefs []int  `json:"evidence_refs"`
+	}
+	if err := w.llm.ChatWithJSON(ctx, []llmclient.ChatMessage{{Role: "user", Content: sb.String()}}, &out); err != nil {
+		return "", nil, fmt.Errorf("句子重写失败: %w", err)
+	}
+	if out.Text == "" {
+		return "", nil, fmt.Errorf("LLM 未返回重写句子")
+	}
+	refs := make([]uint64, 0, len(out.EvidenceRefs))
+	for _, idx := range out.EvidenceRefs {
+		if idx >= 0 && idx < len(req.Evidence) {
+			refs = append(refs, uint64(idx))
+		}
+	}
+	return out.Text, refs, nil
+}

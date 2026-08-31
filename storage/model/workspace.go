@@ -37,6 +37,7 @@ type Requirement struct {
 	StyleSubject      string         `gorm:"column:style_subject;size:255"`
 	WordCount         int            `gorm:"column:word_count;default:0"`
 	ChapterRequirement string        `gorm:"column:chapter_requirement;type:text"`
+	Version           int            `gorm:"column:version;not null;default:1"` // 需求单版本号，每次变更 +1（驱动惰性失效）
 	CreatedAt         time.Time      `gorm:"column:created_at;type:datetime(3)"`
 	UpdatedAt         time.Time      `gorm:"column:updated_at;type:datetime(3)"`
 }
