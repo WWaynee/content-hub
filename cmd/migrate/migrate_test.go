@@ -51,7 +51,7 @@ func TestTablesExist(t *testing.T) {
 	}
 }
 
-// TestUsersUniqueIndex 验证 users 表的 (tenant_id,username) 联合唯一索引存在。
+// TestUsersUniqueIndex 验证 users 表的 username 全局唯一索引存在（登录不传租户ID的基础）。
 func TestUsersUniqueIndex(t *testing.T) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -70,12 +70,12 @@ func TestUsersUniqueIndex(t *testing.T) {
 	for _, r := range rows {
 		keyName, _ := r["Key_name"].(string)
 		col, _ := r["Column_name"].(string)
-		if keyName == "idx_tenant_user" && col == "tenant_id" {
+		if keyName == "idx_username_global" && col == "username" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("users 缺少 idx_tenant_user 索引（tenant_id 列）")
+		t.Fatal("users 缺少 idx_username_global 唯一索引（username 列）")
 	}
 }
 

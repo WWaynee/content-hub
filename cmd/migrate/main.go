@@ -41,6 +41,16 @@ func main() {
 		&model.AgentTask{}, &model.AuditLog{},
 	}
 
+	// 兼容升级：旧版 users.username 是租户内唯一联合索引 idx_tenant_user，
+	// 现改用户名全局唯一 idx_username_global。先删旧索引避免冲突，再 AutoMigrate 建新索引。
+	// （新装库没有旧索引，删除是幂等的。）
+	if db.Migrator().HasIndex(&model.User{}, "idx_tenant_user") {
+		if err := db.Migrator().DropIndex(&model.User{}, "idx_tenant_user"); err != nil {
+			log.Fatalf("删除旧索引 idx_tenant_user 失败: %v", err)
+		}
+		fmt.Println("已删除旧索引 idx_tenant_user（用户名改为全局唯一）。")
+	}
+
 	if err := db.AutoMigrate(models...); err != nil {
 		log.Fatalf("AutoMigrate 失败: %v", err)
 	}

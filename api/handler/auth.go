@@ -32,6 +32,10 @@ func RegisterTenant(c *gin.Context) {
 			response.BadRequest(c, "租户名已存在")
 			return
 		}
+		if err == service.ErrUsernameExists {
+			response.BadRequest(c, "用户名已存在")
+			return
+		}
 		response.ServerError(c, "注册失败")
 		return
 	}
@@ -41,9 +45,8 @@ func RegisterTenant(c *gin.Context) {
 	})
 }
 
-// LoginReq 登录请求。
+// LoginReq 登录请求（用户名全局唯一，不传租户ID）。
 type LoginReq struct {
-	TenantID uint64 `json:"tenant_id" binding:"required,gt=0"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
@@ -55,7 +58,7 @@ func Login(c *gin.Context) {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	u, token, err := service.Login(c.Request.Context(), req.TenantID, req.Username, req.Password)
+	u, token, err := service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
 		if err == service.ErrAccountInvalid {
 			response.Unauthorized(c, "用户名或密码错误")

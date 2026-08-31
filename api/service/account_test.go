@@ -28,7 +28,7 @@ func TestRegisterTenantAndLogin(t *testing.T) {
 
 	// 用随机租户名避免与已有数据/并行冲突
 	name := "unittest_" + randSuffix()
-	u, token, err := RegisterTenant(ctx, name, "utadmin", "pass123456")
+	u, token, err := RegisterTenant(ctx, name, "utAadmin_"+randSuffix(), "pass123456")
 	if err != nil {
 		t.Fatalf("RegisterTenant 失败: %v", err)
 	}
@@ -39,13 +39,19 @@ func TestRegisterTenantAndLogin(t *testing.T) {
 		t.Fatal("应返回 token")
 	}
 
-	// 重复注册同租户应失败
-	if _, _, err := RegisterTenant(ctx, name, "utadmin2", "pass123456"); err != ErrTenantExists {
+	// 重复注册同租户应失败（同用户名，因租户已存在走 ErrTenantExists 分支）
+	if _, _, err := RegisterTenant(ctx, name, "utAadmin_"+randSuffix(), "pass123456"); err != ErrTenantExists {
 		t.Fatalf("重复注册应返回 ErrTenantExists, 实际=%v", err)
 	}
 
-	// 正确登录
-	lu, ltoken, err := Login(ctx, u.TenantID, "utadmin", "pass123456")
+	// 跨租户：另一个租户用相同 admin 用户名应失败（用户名全局唯一）
+	name2 := "unittest_" + randSuffix()
+	if _, _, err := RegisterTenant(ctx, name2, u.Username, "pass123456"); err != ErrUsernameExists {
+		t.Fatalf("跨租户同名 admin 应返回 ErrUsernameExists, 实际=%v", err)
+	}
+
+	// 正确登录（不传租户ID）
+	lu, ltoken, err := Login(ctx, u.Username, "pass123456")
 	if err != nil {
 		t.Fatalf("Login 失败: %v", err)
 	}
@@ -54,12 +60,12 @@ func TestRegisterTenantAndLogin(t *testing.T) {
 	}
 
 	// 错误密码
-	if _, _, err := Login(ctx, u.TenantID, "utadmin", "wrong"); err != ErrAccountInvalid {
+	if _, _, err := Login(ctx, u.Username, "wrong"); err != ErrAccountInvalid {
 		t.Fatalf("错误密码应返回 ErrAccountInvalid, 实际=%v", err)
 	}
-	// 错误租户（不存在的租户）
-	if _, _, err := Login(ctx, 99999999, "utadmin", "pass123456"); err != ErrAccountInvalid {
-		t.Fatalf("不存在的租户应返回 ErrAccountInvalid, 实际=%v", err)
+	// 不存在的用户名
+	if _, _, err := Login(ctx, "nosuchuser_"+randSuffix(), "pass123456"); err != ErrAccountInvalid {
+		t.Fatalf("不存在的用户名应返回 ErrAccountInvalid, 实际=%v", err)
 	}
 
 	// 清理测试数据
@@ -71,11 +77,11 @@ func TestRegisterMemberRole(t *testing.T) {
 	ctx := context.Background()
 
 	name := "unittest_" + randSuffix()
-	admin, _, err := RegisterTenant(ctx, name, "utadmin", "pass123456")
+	admin, _, err := RegisterTenant(ctx, name, "utBadmin_"+randSuffix(), "pass123456")
 	if err != nil {
 		t.Fatalf("RegisterTenant 失败: %v", err)
 	}
-	m, err := RegisterMember(ctx, admin.TenantID, "utworker", "pass123456")
+	m, err := RegisterMember(ctx, admin.TenantID, "utworker_"+randSuffix(), "pass123456")
 	if err != nil {
 		t.Fatalf("RegisterMember 失败: %v", err)
 	}
@@ -83,7 +89,7 @@ func TestRegisterMemberRole(t *testing.T) {
 		t.Fatalf("工作人员 role 应为 member, 实际=%s", m.Role)
 	}
 	// 重复用户名失败
-	if _, err := RegisterMember(ctx, admin.TenantID, "utworker", "pass123456"); err != ErrUsernameExists {
+	if _, err := RegisterMember(ctx, admin.TenantID, m.Username, "pass123456"); err != ErrUsernameExists {
 		t.Fatalf("重复用户名应返回 ErrUsernameExists, 实际=%v", err)
 	}
 	cleanup(ctx, admin.TenantID)

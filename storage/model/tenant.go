@@ -22,8 +22,8 @@ func (Tenant) TableName() string { return "tenants" }
 // User 用户表（账号模块）
 type User struct {
 	ID           uint64         `gorm:"column:id;primaryKey;autoIncrement"`
-	TenantID     uint64         `gorm:"column:tenant_id;not null;uniqueIndex:idx_tenant_user"` // 参与联合唯一索引
-	Username     string         `gorm:"column:username;size:64;uniqueIndex:idx_tenant_user;not null"`
+	TenantID     uint64         `gorm:"column:tenant_id;not null;index"` // 所属租户
+	Username     string         `gorm:"column:username;size:64;uniqueIndex:idx_username_global;not null"` // 用户名全局唯一
 	PasswordHash string         `gorm:"column:password_hash;size:256;not null"` // bcrypt
 	Role         string         `gorm:"column:role;size:32;not null"`           // admin / member
 	Status       int8           `gorm:"column:status;default:1"`

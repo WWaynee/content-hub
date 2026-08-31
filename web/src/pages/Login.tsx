@@ -17,7 +17,6 @@ export default function Login() {
       let data: any
       if (mode === 'login') {
         const resp: any = await axios.post('/api/user/login', {
-          tenant_id: Number(values.tenant_id),
           username: values.username,
           password: values.password,
         })
@@ -60,9 +59,6 @@ export default function Login() {
         <Form form={form} layout="vertical" onFinish={doSubmit}>
           {mode === 'login' ? (
             <>
-              <Form.Item label="租户 ID" name="tenant_id" rules={[{ required: true, message: '请输入租户ID' }]}>
-                <Input placeholder="租户 ID" />
-              </Form.Item>
               <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}>
                 <Input placeholder="用户名" />
               </Form.Item>

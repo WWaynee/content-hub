@@ -22,6 +22,7 @@ var (
 )
 
 // RegisterTenant 注册租户：原子创建 租户 + 首个管理员（role=admin）。
+// 租户名全局唯一；管理员用户名全局唯一（驱动"登录不传租户ID"）。
 func RegisterTenant(ctx context.Context, name, adminUsername, adminPassword string) (*model.User, string, error) {
 	ex, err := storage.IsTenantNameExists(name)
 	if err != nil {
@@ -29,6 +30,13 @@ func RegisterTenant(ctx context.Context, name, adminUsername, adminPassword stri
 	}
 	if ex {
 		return nil, "", ErrTenantExists
+	}
+	uEx, err := storage.IsUsernameExistsGlobal(adminUsername)
+	if err != nil {
+		return nil, "", err
+	}
+	if uEx {
+		return nil, "", ErrUsernameExists
 	}
 	t := &model.Tenant{Name: name, Status: 1}
 	u := &model.User{Username: adminUsername, Role: storage.RoleAdmin, Status: 1}
@@ -55,14 +63,15 @@ func RegisterTenant(ctx context.Context, name, adminUsername, adminPassword stri
 	return u, token, nil
 }
 
-// Login 登录：按租户+用户名+密码校验，返回 token。
-func Login(ctx context.Context, tenantID uint64, username, password string) (*model.User, string, error) {
-	t, err := storage.GetTenantByID(tenantID)
-	if err != nil || t.Status != 1 {
+// Login 登录：按全局唯一用户名+密码校验（不传租户ID），返回 token。
+func Login(ctx context.Context, username, password string) (*model.User, string, error) {
+	u, err := storage.GetUserByUsernameGlobal(username)
+	if err != nil || u.Status != 1 {
 		return nil, "", ErrAccountInvalid
 	}
-	u, err := storage.GetUserByUsername(tenantID, username)
-	if err != nil || u.Status != 1 {
+	// 校验所属租户已启用
+	t, err := storage.GetTenantByID(u.TenantID)
+	if err != nil || t.Status != 1 {
 		return nil, "", ErrAccountInvalid
 	}
 	if !util.VerifyPassword(password, u.PasswordHash) {
@@ -85,7 +94,8 @@ func RegisterMember(ctx context.Context, tenantID uint64, username, password str
 	if err != nil || t.Status != 1 {
 		return nil, ErrTenantNotFound
 	}
-	ex, err := storage.IsUsernameExists(tenantID, username)
+	// 用户名全局唯一
+	ex, err := storage.IsUsernameExistsGlobal(username)
 	if err != nil {
 		return nil, err
 	}
