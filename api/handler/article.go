@@ -38,9 +38,16 @@ func GenerateArticle(c *gin.Context) {
 	// 状态机：进入生成中（禁导）
 	storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generating")
 
+	// 勾选范围 → 递归展开为文件 ID，锁定检索范围（无勾选则 nil=全租户）
+	fileIDs, err := service.RequirementFileIDScope(c.Request.Context(), tenantID, req.ID)
+	if err != nil {
+		response.ServerError(c, "展开勾选范围失败："+err.Error())
+		return
+	}
+
 	llm := llmclient.NewClient()
 	o := orchestrator.New(retrieve.New(llm), writing.New(llm), evidence.New())
-	res, err := o.Generate(c.Request.Context(), tenantID, agentReq, nil)
+	res, err := o.Generate(c.Request.Context(), tenantID, agentReq, fileIDs)
 	if err != nil {
 		response.ServerError(c, "生成失败："+err.Error())
 		return

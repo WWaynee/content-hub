@@ -21,9 +21,9 @@
 
 ## 阶段 2 · 数据表落库（已完成 ✅）
 
-- [x] 编写 GORM model（18 张表：tenants/users/kbase_dirs/kbase_files/doc_versions/doc_chunks/doc_sentences/workspaces/requirements/requirement_scope/articles/article_versions/article_sentences/evidence_bindings/conversations/conversation_messages/agent_tasks/audit_logs）
+- [x] 编写 GORM model（22 张表：含原 18 张 + retrieval_batches/retrieval_batch_items/qa_sessions/qa_messages；详见 db.md）
 - [x] `cmd/migrate` 迁移工具 + 建表（含唯一索引/联合索引 per db.md）
-- [x] 验证 18 张表在 content_hub 库生成
+- [x] 验证 22 张表在 content_hub 库生成
 - [x] `docs/architecture/db.md` 索引与模型核对（字段/类型/默认值/索引已通过 information_schema 逐表核对无误）
 
 ## 阶段 3 · 账号与鉴权模块（已完成 ✅）
@@ -41,7 +41,7 @@
 - [x] 目录树（公有/私有，递归）kbase_dirs CRUD + 权限（读写分离）
 - [x] 文档上传/下载/预览（阿里云 OSS，物理扁平 + 目录逻辑映射）
 - [x] 文档版本（doc_versions，只增不减、latest 指针、md5）
-- [x] 上传覆盖选择 + 乐观锁兜底 + 上传/解析失败兜底语义
+- [x] 上传覆盖选择 + 版本一致性兜底（事务保证 latest 唯一 + 失败保留上一版，权限结构天然消除并发写冲突）
 - [x] 文档切片 splitter（structured → 自然段 → 软300字 → 完整句末截断）
 - [x] 向量化入库 worker（RabbitMQ document_parse 异步队列 + cmd/worker 进程 + 上传投递改异步）
 - [x] Qdrant 检索（按租户 collection/payload 隔离 + latest + 勾选范围 document_ids 过滤，top-K=20）
