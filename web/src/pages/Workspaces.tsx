@@ -101,7 +101,7 @@ export default function Workspaces() {
       await api.post('/workspaces', {
         title: v.title,
         req_title: v.req_title,
-        tags: (v.tags || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+        tags: (v.tags || []).filter((s: string) => s.trim()).map((s: string) => s.trim()),
         platforms: v.platforms || [],
         style_tone: v.style_tone,
         style_emotion: v.style_emotion,
@@ -237,8 +237,20 @@ export default function Workspaces() {
             <Input placeholder="如：招生简章发布稿" />
           </Form.Item>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item label="标签（逗号分隔）" name="tags">
-              <Input placeholder="如：招生, 政策" />
+            <Form.Item label="标签" name="tags" extra="输入后回车添加，可多个；支持逗号智能分隔">
+              <Select
+                mode="tags"
+                placeholder="输入标签后回车添加（如：招生）"
+                tokenSeparators={[',', '，']}
+                options={[
+                  { label: '招生', value: '招生' },
+                  { label: '政策', value: '政策' },
+                  { label: '通知', value: '通知' },
+                  { label: '公告', value: '公告' },
+                  { label: '活动', value: '活动' },
+                  { label: '宣传', value: '宣传' },
+                ]}
+              />
             </Form.Item>
             <Form.Item
               label="发布平台"
