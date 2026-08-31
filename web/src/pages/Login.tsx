@@ -20,14 +20,14 @@ export default function Login() {
           username: values.username,
           password: values.password,
         })
-        data = resp.data
+        data = resp.data?.data
       } else {
         const resp: any = await axios.post('/api/tenant/register', {
           name: values.reg_name,
           admin_name: values.reg_admin,
           admin_passwd: values.reg_pass,
         })
-        data = resp.data
+        data = resp.data?.data
       }
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify(data.user))
