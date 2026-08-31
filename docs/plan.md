@@ -93,6 +93,6 @@
 
 ## 阶段 8 · 收尾
 
-- [ ] Prometheus 指标 + 健康检查（/health 依赖状态）
+- [x] Prometheus 指标 + 健康检查（/health 依赖状态）
 - [ ] 上线前安全清单（JWT 换密钥 / GIN_MODE=release / CORS 白名单 / 传输 HTTPS）
-- [ ] 端到端冒烟脚本 / 多租户隔离对抗测试
+- [x] 端到端冒烟脚本 / 多租户隔离对抗测试
