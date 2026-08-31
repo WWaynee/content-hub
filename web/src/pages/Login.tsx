@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { Card, Form, Input, Button, Segmented, Typography, App } from 'antd'
+import { Form, Input, Button, Segmented, Typography, App } from 'antd'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -41,11 +41,14 @@ export default function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-      <Card style={{ width: 400, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-        <Typography.Title level={3} style={{ textAlign: 'center', marginTop: 0 }}>
-          content-hub
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--app-bg)', backgroundAttachment: 'fixed', padding: 24 }}>
+      <div className="app-card" style={{ width: 420, padding: 32 }}>
+        <Typography.Title level={3} style={{ textAlign: 'center', marginTop: 0, fontWeight: 700 }}>
+          政企内容运营平台
         </Typography.Title>
+        <div style={{ textAlign: 'center', color: 'var(--text-soft)', marginBottom: 20, fontSize: 13 }}>
+          {mode === 'login' ? '欢迎回来，请登录' : '注册租户并创建管理员账号'}
+        </div>
         <Segmented
           block
           value={mode}
@@ -83,7 +86,7 @@ export default function Login() {
             {mode === 'login' ? '登录' : '注册并登录'}
           </Button>
         </Form>
-      </Card>
+      </div>
     </div>
   )
 }

@@ -24,7 +24,7 @@ func TestEnsureBatchFreshLifecycle(t *testing.T) {
 	tenantID := uint64(99992040)
 
 	// 创建工作区 + 需求单（version=1）
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "失效判定")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "失效判定", nil)
 	req, _ := storage.GetRequirementByWorkspace(ctx, tenantID, w.ID)
 	if req.Version != 1 {
 		t.Fatalf("初始 version 应为 1，实际 %d", req.Version)

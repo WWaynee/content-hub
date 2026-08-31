@@ -37,7 +37,7 @@ func TestMultitenantIsolation(t *testing.T) {
 		t.Fatalf("A 建文件失败: %v", err)
 	}
 	// 工作区 + 需求单（A 私有）
-	wA, _ := CreateWorkspace(ctx, tenantA, 1, "A私密工作区")
+	wA, _ := CreateWorkspace(ctx, tenantA, 1, "A私密工作区", nil)
 
 	// 2. 租户 B 列私有库目录（自己名下）→ 不应看到 A 的目录
 	bDirs, err := storage.ListDirs(ctx, tenantB, storage.ScopePrivate, 1, 0)

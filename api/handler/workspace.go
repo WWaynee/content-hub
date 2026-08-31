@@ -11,21 +11,49 @@ import (
 
 // 工作区 HTTP handler。
 
-// CreateWorkspaceReq 新建工作区请求。
+// CreateWorkspaceReq 新建工作区请求（可携带需求单初步内容）。
 type CreateWorkspaceReq struct {
-	Title string `json:"title" binding:"required,min=1,max=256"`
+	Title              string   `json:"title" binding:"required,min=1,max=256"` // 工作区标题必填
+	ReqTitle           string   `json:"req_title,omitempty"`                     // 需求单标题
+	Tags               []string `json:"tags,omitempty"`
+	Platforms          []string `json:"platforms,omitempty"`
+	StyleTone          string   `json:"style_tone,omitempty"`
+	StyleEmotion       string   `json:"style_emotion,omitempty"`
+	StyleAudience      string   `json:"style_audience,omitempty"`
+	StylePurpose       string   `json:"style_purpose,omitempty"`
+	StyleTaboo         string   `json:"style_taboo,omitempty"`
+	StyleSubject       string   `json:"style_subject,omitempty"`
+	WordCount          int      `json:"word_count,omitempty"`
+	ChapterRequirement string   `json:"chapter_requirement,omitempty"`
 }
 
-// CreateWorkspace 新建工作区。
+// CreateWorkspace 新建工作区（必须提供需求单初步内容：需求单标题+平台，且风格/字数/章节至少一项）。
 func CreateWorkspace(c *gin.Context) {
 	var req CreateWorkspaceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
+	reqIn := &service.RequirementInput{
+		Title:              req.ReqTitle,
+		Tags:               req.Tags,
+		Platforms:          req.Platforms,
+		StyleTone:          req.StyleTone,
+		StyleEmotion:       req.StyleEmotion,
+		StyleAudience:      req.StyleAudience,
+		StylePurpose:       req.StylePurpose,
+		StyleTaboo:         req.StyleTaboo,
+		StyleSubject:       req.StyleSubject,
+		WordCount:          req.WordCount,
+		ChapterRequirement: req.ChapterRequirement,
+	}
+	if !reqIn.HasInitialContent() {
+		response.BadRequest(c, "请填写需求单初步内容：需求单标题、发布平台，且风格或字数或章节至少一项")
+		return
+	}
 	tenantID := middleware.GetTenantID(c)
 	userID := middleware.GetUserID(c)
-	w, err := service.CreateWorkspace(c.Request.Context(), tenantID, userID, req.Title)
+	w, err := service.CreateWorkspace(c.Request.Context(), tenantID, userID, req.Title, reqIn)
 	if err != nil {
 		response.ServerError(c, "新建工作区失败")
 		return

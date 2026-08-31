@@ -23,7 +23,7 @@ func TestPersistArticleSnapshot(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uint64(99990030)
 
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "快照测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "快照测试", nil)
 
 	// 构造 2 条句子级证据
 	evidence := []agent.Evidence{

@@ -31,7 +31,7 @@ func TestExportArticle(t *testing.T) {
 	storage.GetDB().Create(docSent)
 
 	// 用 generation 落库造一个快照
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "导出测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "导出测试", nil)
 	evidence := []agent.Evidence{{FileID: 100, DocSentenceID: docSent.ID, VersionMd5: "v1", SourceText: "原文句子内容。"}}
 	article := &agent.Article{Title: "导出稿", Sections: []agent.Section{{
 		Heading: "第一章", Paragraphs: []agent.Paragraph{{

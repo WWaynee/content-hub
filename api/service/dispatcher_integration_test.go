@@ -25,7 +25,7 @@ func TestDispatcherUpdateRequirement(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uint64(99990070)
 
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "对话测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "对话测试", nil)
 	req, _ := storage.GetRequirementByWorkspace(ctx, tenantID, w.ID)
 
 	d := NewDispatcher()

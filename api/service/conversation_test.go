@@ -22,7 +22,7 @@ func TestConversationPersistence(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uint64(99990040)
 
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "会话测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "会话测试", nil)
 
 	// 确保会话
 	conv, err := EnsureConversation(ctx, tenantID, w.ID, 1)

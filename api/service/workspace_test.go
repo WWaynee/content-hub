@@ -25,7 +25,7 @@ func TestCreateWorkspaceAndUpdateRequirement(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uint64(99990010) // 独立测试租户
 
-	w, err := CreateWorkspace(ctx, tenantID, 1, "测试工作区")
+	w, err := CreateWorkspace(ctx, tenantID, 1, "测试工作区", nil)
 	if err != nil {
 		t.Fatalf("CreateWorkspace 失败: %v", err)
 	}

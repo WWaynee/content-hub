@@ -273,10 +273,10 @@ export default function Knowledge() {
               flex: 1,
               minHeight: 240,
               overflow: 'auto',
-              border: '1px solid #f0f0f0',
+              border: '1px solid var(--panel-border)',
               borderRadius: 8,
               padding: 12,
-              background: '#fafafa',
+              background: 'var(--panel-bg)',
             }}
           >
             {messages.length === 0 ? (
@@ -286,12 +286,12 @@ export default function Knowledge() {
                 <div key={m.id} style={{ textAlign: m.role === 'user' ? 'right' : 'left', margin: '6px 0' }}>
                   <Typography.Text
                     style={{
-                      background: m.role === 'user' ? '#e6f4ff' : '#fff',
+                      background: m.role === 'user' ? 'rgba(79,110,245,0.14)' : 'var(--panel-bg)',
                       padding: '6px 10px',
                       borderRadius: 8,
                       display: 'inline-block',
                       maxWidth: '85%',
-                      border: m.role === 'assistant' ? '1px solid #eee' : 'none',
+                      border: m.role === 'assistant' ? '1px solid var(--panel-border)' : 'none',
                     }}
                   >
                     {m.content}

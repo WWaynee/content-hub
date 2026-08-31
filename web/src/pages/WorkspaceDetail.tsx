@@ -192,7 +192,7 @@ export default function WorkspaceDetail() {
             generating={generating}
           />
           {exported && (
-            <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
+            <Card size="small" style={{ marginBottom: 16, background: 'var(--panel-bg)' }}>
               <Typography.Paragraph
                 style={{ whiteSpace: 'pre-wrap' }}
                 copyable={{ text: exported }}

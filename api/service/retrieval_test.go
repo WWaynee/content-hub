@@ -43,7 +43,7 @@ func TestRetrievalBatchLifecycle(t *testing.T) {
 	}
 
 	// 2. 创建工作区 + 需求单
-	w, err := CreateWorkspace(ctx, tenantID, 1, "测试")
+	w, err := CreateWorkspace(ctx, tenantID, 1, "测试", nil)
 	if err != nil {
 		t.Fatalf("CreateWorkspace 失败: %v", err)
 	}

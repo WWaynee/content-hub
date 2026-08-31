@@ -44,7 +44,7 @@ func TestReviseSentenceFull(t *testing.T) {
 	}
 
 	// 创建快照（2 句，句0绑证据、句1无证据）
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "修订端到端")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "修订端到端", nil)
 	evidence := []agent.Evidence{{FileID: 1, DocSentenceID: 1, VersionMd5: "v1", SourceText: "假期"}}
 	article := &agent.Article{Title: "稿", Sections: []agent.Section{{Paragraphs: []agent.Paragraph{{
 		Sentences: []agent.Sentence{

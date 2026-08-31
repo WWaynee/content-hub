@@ -21,7 +21,7 @@ func TestApplyArticleRevision(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uint64(99992010)
 
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "修订测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "修订测试", nil)
 
 	// 构造证据 + 2 句稿件
 	evidence := []agent.Evidence{

@@ -42,7 +42,7 @@ func TestAppendArticleContent(t *testing.T) {
 	}
 
 	// 落快照（1 句）
-	w, _ := CreateWorkspace(ctx, tenantID, 1, "追加测试")
+	w, _ := CreateWorkspace(ctx, tenantID, 1, "追加测试", nil)
 	article := &agent.Article{Title: "稿", Sections: []agent.Section{{Paragraphs: []agent.Paragraph{{
 		Sentences: []agent.Sentence{{Text: "假期共9天。", EvidenceRefs: []uint64{}}},
 	}}}}}
