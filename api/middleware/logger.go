@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,5 +24,7 @@ func Logger() gin.HandlerFunc {
 				"status":  c.Writer.Status(),
 				"latency": latency.Milliseconds(),
 			})
+		// Prometheus HTTP 指标（path 用 FullPath 路由模板，低基数）
+		observability.IncHTTPRequest(c.Request.Method, c.FullPath(), strconv.Itoa(c.Writer.Status()), latency.Seconds())
 	}
 }

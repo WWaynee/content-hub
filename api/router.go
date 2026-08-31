@@ -5,6 +5,7 @@ import (
 
 	"github.com/WWaynee/content-hub/api/handler"
 	"github.com/WWaynee/content-hub/api/middleware"
+	"github.com/WWaynee/content-hub/observability"
 )
 
 // NewRouter 构建 Gin 路由。
@@ -16,6 +17,9 @@ func NewRouter() *gin.Engine {
 
 	// 健康检查（公开）
 	r.GET("/health", handler.Health)
+
+	// Prometheus 指标（建议内网/鉴权，当前开发期公开）
+	r.GET("/metrics", gin.WrapH(observability.MetricsHandler()))
 
 	// 公开组：认证
 	pub := r.Group("/api")

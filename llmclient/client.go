@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/observability"
 )
 
 // Client LLM 客户端接口（业务层只依赖此接口）。
@@ -183,6 +184,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []ChatMessage) (string
 	url := config.Get().LLM.BaseURL + "/chat/completions"
 	body, err := c.doPost(ctx, url, config.Get().LLM.APIKey, payload)
 	if err != nil {
+		observability.IncLLMCall(c.chatModel, false)
 		return "", fmt.Errorf("chat 请求失败: %w", err)
 	}
 	var resp struct {
@@ -193,10 +195,13 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []ChatMessage) (string
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
+		observability.IncLLMCall(c.chatModel, false)
 		return "", fmt.Errorf("chat 响应解析失败: %w", err)
 	}
 	if len(resp.Choices) == 0 {
+		observability.IncLLMCall(c.chatModel, false)
 		return "", fmt.Errorf("chat 响应无 choices")
 	}
+	observability.IncLLMCall(c.chatModel, true)
 	return resp.Choices[0].Message.Content, nil
 }
