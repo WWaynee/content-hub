@@ -10,13 +10,11 @@ import (
 func TestMetricsEndpoint(t *testing.T) {
 	r := NewRouter()
 
-	// 先打一个 /health 请求，触发 http_requests_total 的实例
+	// 先打一个 /health 请求，触发 http_requests_total 的实例（可能 200 或 503，均会经 logger 打指标）
 	hw := httptest.NewRecorder()
 	hreq := httptest.NewRequest("GET", "/health", nil)
 	r.ServeHTTP(hw, hreq)
-	if hw.Code != 200 {
-		t.Fatalf("/health 应返回 200，实际 %d", hw.Code)
-	}
+	// 注：/health 现为真实探活，测试环境依赖未初始化可能返回 503，不影响此处指标打点验证
 
 	// 再请求 /metrics
 	w := httptest.NewRecorder()

@@ -57,6 +57,11 @@ func Publish(queue string, body []byte) error {
 	})
 }
 
+// IsReady 判断 RabbitMQ 连接是否已初始化可用。
+func IsReady() bool {
+	return conn != nil && !conn.IsClosed()
+}
+
 // Consume 消费队列，对每条消息调用 handler；handler 返回 nil 则 ACK，否则 Nack(requeue)。
 func Consume(queue string, handler func(body []byte) error) error {
 	if ch == nil {

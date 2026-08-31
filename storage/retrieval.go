@@ -38,6 +38,16 @@ func GetRetrievalBatch(ctx context.Context, batchID uint64) (*model.RetrievalBat
 	return &b, nil
 }
 
+// GetLatestRetrievalBatch 取某工作区最新一次检索快照（用于惰性失效判定）。
+func GetLatestRetrievalBatch(ctx context.Context, workspaceID uint64) (*model.RetrievalBatch, error) {
+	var b model.RetrievalBatch
+	if err := GetDB().WithContext(ctx).Where("workspace_id = ?", workspaceID).
+		Order("id DESC").First(&b).Error; err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 // ListBatchItems 列出某批次的全部命中指针（按 doc_sentence_id 升序，便于 diff）。
 func ListBatchItems(ctx context.Context, batchID uint64) ([]model.RetrievalBatchItem, error) {
 	var items []model.RetrievalBatchItem

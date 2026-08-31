@@ -53,6 +53,11 @@ func GenerateArticle(c *gin.Context) {
 		return
 	}
 
+	// 检索快照落库（供惰性失效判定 + 证据追溯）；失败不阻断主流程
+	if _, berr := service.PersistRetrievalBatch(c.Request.Context(), tenantID, wid, req.ID, req.Version, res.Queries, service.EvidenceToKbaseHits(res.Evidence)); berr != nil {
+		_ = berr
+	}
+
 	verID, err := service.PersistArticleSnapshot(c.Request.Context(), tenantID, wid, req.Version, res.Article, res.Evidence)
 	if err != nil {
 		response.ServerError(c, "稿件落库失败："+err.Error())

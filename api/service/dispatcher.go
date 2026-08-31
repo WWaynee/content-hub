@@ -81,12 +81,16 @@ func (d *Dispatcher) execAction(ctx context.Context, tenantID, userID, workspace
 		return ActionResult{Tool: ac.Tool, Success: true, Message: "已更新需求单字段 " + ac.Field}
 
 	case "request_retrieval":
-		// 补检索（简化：直接检索一次，结果不落 batch 的完整指针，仅记入结果说明）
-		evs, err := SearchKbaseSentences(ctx, tenantID, ac.RetrievalQuery)
+		// 补检索 + 落检索快照（供惰性失效判定 / 证据追溯）
+		hits, err := SearchKbaseSentences(ctx, tenantID, ac.RetrievalQuery)
 		if err != nil {
 			return ActionResult{Tool: ac.Tool, Success: false, Message: err.Error()}
 		}
-		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("补检索命中 %d 条", len(evs))}
+		// 落快照（requirementVersion 用当前需求单 version）
+		if _, berr := PersistRetrievalBatch(ctx, tenantID, workspaceID, req.ID, req.Version, []string{ac.RetrievalQuery}, hits); berr != nil {
+			return ActionResult{Tool: ac.Tool, Success: false, Message: berr.Error()}
+		}
+		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("补检索命中 %d 条，已记录检索快照", len(hits))}
 
 	case "revise_article_sentence":
 		// 完整句子级修订：LLM 重写目标句 + 被改句重检测证据 + 落新快照

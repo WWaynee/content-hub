@@ -160,6 +160,15 @@ func buildContentFromDrafts(drafts []sentDraft) string {
 // ReviseSentenceFull 句子级修订的完整链路：读当前稿件 → LLM 重写目标句 → 被改句重检测证据 → 落新快照。
 // 这是 revision 的"对话→重写→落库"最后一环。
 func ReviseSentenceFull(ctx context.Context, tenantID, workspaceID uint64, targetIndex int, instruction string) (uint64, error) {
+	// 0. 惰性失效判定：需求单变更后禁止基于过期检索快照做局部修订
+	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("需求单不存在")
+	}
+	if err := EnsureBatchFresh(ctx, workspaceID, req.ID); err != nil {
+		return 0, err
+	}
+
 	// 1. 读当前稿件句子
 	a, err := storage.GetArticleByWorkspace(ctx, tenantID, workspaceID)
 	if err != nil {
@@ -178,11 +187,7 @@ func ReviseSentenceFull(ctx context.Context, tenantID, workspaceID uint64, targe
 	}
 	targetText := sents[targetIndex].Content
 
-	// 2. 读需求单 + 勾选范围
-	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
-	if err != nil {
-		return 0, fmt.Errorf("需求单不存在")
-	}
+	// 2. 勾选范围
 	fileIDs, err := RequirementFileIDScope(ctx, tenantID, req.ID)
 	if err != nil {
 		return 0, err
@@ -200,6 +205,11 @@ func ReviseSentenceFull(ctx context.Context, tenantID, workspaceID uint64, targe
 		return 0, err
 	}
 	newEvidence := hitsToEvidence(hits)
+
+	// 落本次修订的检索快照（惰性失效判定基准）
+	if _, berr := PersistRetrievalBatch(ctx, tenantID, workspaceID, req.ID, req.Version, []string{newText}, hits); berr != nil {
+		_ = berr
+	}
 
 	// 5. 落新快照（未动句继承，被改句换新文本 + 新证据）
 	// 新证据的 refs：取前几条作为绑定（一期简化：全部命中都可绑，但限制最多前 3 条）
@@ -256,6 +266,15 @@ func hitsToEvidence(hits []KbaseHit) []agent.Evidence {
 // AppendArticleContent 追加段落：LLM 生成追加内容 → 检索证据 → 追加到稿件末尾 → 落新快照。
 // 现有句子全部继承（文本+证据），追加的新句子带新检索到的证据。
 func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, instruction string) (uint64, error) {
+	// 0. 惰性失效判定：需求单变更后禁止基于过期检索快照做追加
+	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("需求单不存在")
+	}
+	if err := EnsureBatchFresh(ctx, workspaceID, req.ID); err != nil {
+		return 0, err
+	}
+
 	a, err := storage.GetArticleByWorkspace(ctx, tenantID, workspaceID)
 	if err != nil {
 		return 0, fmt.Errorf("稿件不存在")
@@ -280,10 +299,6 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 	}
 
 	// 对追加内容检索证据
-	req, err := storage.GetRequirementByWorkspace(ctx, tenantID, workspaceID)
-	if err != nil {
-		return 0, fmt.Errorf("需求单不存在")
-	}
 	fileIDs, err := RequirementFileIDScope(ctx, tenantID, req.ID)
 	if err != nil {
 		return 0, err
@@ -293,6 +308,11 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 		return 0, err
 	}
 	newEvidence := hitsToEvidence(hits)
+
+	// 落本次追加的检索快照（惰性失效判定基准）
+	if _, berr := PersistRetrievalBatch(ctx, tenantID, workspaceID, req.ID, req.Version, []string{newText}, hits); berr != nil {
+		_ = berr
+	}
 
 	// 现有句子绑定按 sentence_id 分组（继承）
 	bindBySent := map[uint64][]model.EvidenceBinding{}

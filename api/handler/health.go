@@ -4,10 +4,24 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/WWaynee/content-hub/api/service"
 )
 
-// Health 健康检查（依赖状态聚合）。任一依赖异常返回 503。
-// 阶段 3 先返回基本状态；后续阶段接入 MySQL/Redis/Qdrant/RabbitMQ 探针。
+// Health 健康检查：真实探活所有中间件依赖。任一 down 返回 503，全部 up 返回 200。
 func Health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "deps": gin.H{"mysql": "up", "redis": "up"}})
+	deps := service.CheckDependencies(c.Request.Context())
+
+	allUp := true
+	for _, d := range deps {
+		if d.Status != "up" {
+			allUp = false
+			break
+		}
+	}
+	status := http.StatusOK
+	if !allUp {
+		status = http.StatusServiceUnavailable
+	}
+	c.JSON(status, gin.H{"status": map[bool]string{true: "ok", false: "degraded"}[allUp], "deps": deps})
 }
