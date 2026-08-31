@@ -34,12 +34,12 @@ func TestRetrievalBatchLifecycle(t *testing.T) {
 
 	// 1. 上传文档
 	content := "# 放假通知\n\n## 假期安排\n2026年春节假期为2月15日至2月23日，共9天。\n\n## 值班要求\n各科室安排值班人员在岗。"
-	_, err = IngestDocument(ctx, IngestParams{
+	_, err = IngestAndParse(ctx, IngestParams{
 		TenantID: tenantID, Scope: storage.ScopePrivate, OwnerUserID: 1, DirID: 0,
 		FileName: "放假通知.md", Content: []byte(content),
 	})
 	if err != nil {
-		t.Fatalf("IngestDocument 失败: %v", err)
+		t.Fatalf("IngestAndParse 失败: %v", err)
 	}
 
 	// 2. 创建工作区 + 需求单

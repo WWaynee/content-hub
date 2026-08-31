@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/WWaynee/content-hub/mq"
 	"github.com/WWaynee/content-hub/storage"
 	"github.com/WWaynee/content-hub/storage/model"
 )
@@ -101,12 +102,27 @@ func IngestDocument(ctx context.Context, p IngestParams) (*IngestResult, error) 
 		return nil, fmt.Errorf("创建版本记录失败: %w", err)
 	}
 
-	// 同步全链路解析向量化
-	if err := ProcessDocument(ctx, p.TenantID, fileID, ver.ID); err != nil {
-		return nil, err
+	// 异步：投递 MQ 文档解析任务，由 worker 进程消费解析（不阻塞上传请求）
+	if err := mq.PublishDocumentParseTask(ctx, p.TenantID, fileID, ver.ID); err != nil {
+		// 投递失败则不视为成功版本（保留上一版 latest）
+		return nil, fmt.Errorf("投递解析任务失败: %w", err)
 	}
 
 	return &IngestResult{FileID: fileID, VersionID: ver.ID, VersionMd5: md5sum}, nil
+}
+
+// IngestAndParse 上传 + 同步解析（供测试/需要同步完成的场景使用；生产走 IngestDocument 异步投递 MQ）。
+func IngestAndParse(ctx context.Context, p IngestParams) (*IngestResult, error) {
+	// 复用 IngestDocument 的上传+建版本，但改为同步 ProcessDocument
+	// 由于 IngestDocument 已异步投递，这里构造一个"同步"版本：上传后直接 ProcessDocument。
+	res, err := IngestDocument(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if err := ProcessDocument(ctx, p.TenantID, res.FileID, res.VersionID); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func validateFileType(name string) error {

@@ -63,7 +63,7 @@ func TestIngestAndSearch(t *testing.T) {
 
 	tenantID := uint64(99990001) // 独立测试租户，避免污染真实数据
 
-	res, err := IngestDocument(ctx, IngestParams{
+	res, err := IngestAndParse(ctx, IngestParams{
 		TenantID:    tenantID,
 		Scope:       storage.ScopePrivate,
 		OwnerUserID: 1,
@@ -72,7 +72,7 @@ func TestIngestAndSearch(t *testing.T) {
 		Content:     []byte(content),
 	})
 	if err != nil {
-		t.Fatalf("IngestDocument 失败: %v", err)
+		t.Fatalf("IngestAndParse 失败: %v", err)
 	}
 	if res.FileID == 0 || res.VersionID == 0 {
 		t.Fatalf("应返回 fileID/versionID")

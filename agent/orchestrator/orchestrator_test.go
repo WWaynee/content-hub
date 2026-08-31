@@ -45,7 +45,7 @@ func TestOrchestratorGenerate(t *testing.T) {
 
 ## 录取规则
 按高考总成绩从高到低依次录取，同等分数依次比较语文、数学成绩。`
-	_, err = service.IngestDocument(ctx, service.IngestParams{
+	_, err = service.IngestAndParse(ctx, service.IngestParams{
 		TenantID:    tenantID,
 		Scope:       storage.ScopePrivate,
 		OwnerUserID: 1,

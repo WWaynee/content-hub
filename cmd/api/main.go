@@ -6,6 +6,7 @@ import (
 
 	"github.com/WWaynee/content-hub/api"
 	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/mq"
 	"github.com/WWaynee/content-hub/storage"
 )
 
@@ -22,6 +23,10 @@ func main() {
 	// 连接 Redis（必需，限流依赖）
 	if _, err := storage.InitRedis(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password, 0); err != nil {
 		log.Fatalf("初始化 Redis 失败: %v", err)
+	}
+	// 连接 RabbitMQ（上传时投递文档解析任务）
+	if err := mq.InitRabbitMQ(); err != nil {
+		log.Fatalf("初始化 RabbitMQ 失败: %v", err)
 	}
 
 	r := api.NewRouter()

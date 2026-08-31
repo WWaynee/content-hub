@@ -33,12 +33,12 @@ func TestQABotFlow(t *testing.T) {
 
 	// 1. 上传资料
 	content := "# 招生简章\n\n## 报名条件\n本年度面向应届高中毕业生，年龄不超过25周岁。\n\n## 录取规则\n按高考总成绩从高到低依次录取。"
-	_, err = IngestDocument(ctx, IngestParams{
+	_, err = IngestAndParse(ctx, IngestParams{
 		TenantID: tenantID, Scope: storage.ScopePrivate, OwnerUserID: 1, DirID: 0,
 		FileName: "招生简章.md", Content: []byte(content),
 	})
 	if err != nil {
-		t.Fatalf("IngestDocument 失败: %v", err)
+		t.Fatalf("IngestAndParse 失败: %v", err)
 	}
 
 	// 2. 建会话
