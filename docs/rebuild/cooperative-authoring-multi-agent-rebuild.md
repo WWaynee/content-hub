@@ -393,3 +393,137 @@ article {
 >
 > 归结一句:**rev-2 让多 Agent 从"秀给技术评审看"回到"让政企文案安全地用"—Agent 在后台续命可信,前台是可读、可引、可改的人稿体验。**
 
+---
+
+# §12 rev-3 · 逐条可实施性判定 + 人机混合写作的可落地设计 + 硬伤评审
+> rev-3 回答你三个字面的问题:**①我上面讲的每一条,是不是实现后能真落地? ②尤其"人机混合写作",给一份不推翻系统、又能真拆掉"禁手编"教条的可实施设计。 ③再用毒辣的、读过后端+前端代码的眼睛,把仍存的硬伤(技术+体验)一起挖出来并给修复。**
+> 写法上先给判定表,再给可落地设计与硬伤,避免把 rev-2 的漂亮话"看起来已实现"。
+
+---
+
+## 12.1 判定表:rev-1/rev-2 每一条,当下代码里"能不能直接落地"
+
+> 判定分三档:**A=只在现有表/接口上加字段与分支,不换交互模型; B=要新增一种提交/落库路径,但仍复用现有 run 与版本快照; C=需要先修一处底层(并发/权限)否则不能安全开。** 没有 C 级之前别宣称"可实施"。
+
+| 条目 | 判定 | 依据(读过代码) | 落地最小起点 |
+|------|:--:|------|------|
+| §2.1 agent run/step 持久实体 | **B** | 现只 `article_version / conversation_messages(DialoguePlan JSON)`,无 run/step 表 | 先扩 `conversation_messages.kind/tool_result`? 还是新表,见 rev-1 D1 |
+| §9.1 结构化渲染(替代 pre-wrap) | **A** | `article_sentences` 已带 section/paragraph/sentence index; `agent.Article` 已在内存 | 前端改写 `GetArticle` 渲染,后端只需加 `sections` 结构 response |
+| §9.2 句内 sources tooltip | **B(C?)** | `EvidenceBinding` 只存两外键; `ListArticleBindings` 直接 Find→前端无 source_text→**拿不到原句** | **需先(12.3)`binding→source`冗余/join**,否则是空壳(见原rev-2 Q2) |
+| §9.3 逐句就地改句 | **A** | 后端 `run:revision`/`ReviseSentenceFull` 已存在且接 handler; 缺'就地刷新该句'UI | 前端加 sentence 操作 + 提交 revision; 后端改动主要是"把结果回给该句" |
+| §9.4 动线收敛 | **A** | 相对独立,先重构侧栏/按钮文案 | 纯前端 |
+| §8.2 Q1 归一 human 单选项(ask 收敛) | **B** | Guardian `ask_human` 尚是设计; 现 dispatcher action 是 `request/update/revise/append` | 在 dispatcher 增 `ask_user` 类 decision 即可起步 |
+| §8.2 Q2 source 冗余/join | **C** | 见12.3 | 这是 §9.2 前置, 必须先做 |
+| §8.2 Q3 人机混合写作 | **C** | 受(12.3)并发与权限限制 | 核心, 见12.4 |
+
+**结论:** 除"source 空洞"与"混合写作"两处为 C 级,其余 rev-1/2 大多是 A/B,可在现有地基上渐次落地,不是推倒重来。但没有 12.3 的修复,§9.2/§10 证据 UI 与 §8.2 Q3 都是"看起来能、其实空"。
+
+---
+
+## 12.2 一句话结论(为下面的硬伤先给坐标)
+> 在把"禁手编"打开成"人机混合写作"之前,**必须先解决两个我在代码里确认的基础设施问题**,否则放开手编不是可用性提升,而是引爆漏洞:
+> (S1)**检索层没有 owner/scope 权限**——写/列举/删除都按 owner 校验了,但喂给 AI 生成与 QA 问答的**向量检索不打 owner**,私有库内容可被同租户他人经"AI 检索"旁路命中;
+> (S2)**稿件版本递增是内存算 `prev.VersionNo+1`,无乐观锁/无 CAS**,仅靠 `(article_id,version_no)` 唯一索引在落库瞬间兜底——单写者+串行请求撞不出来,但放开多人可编辑/并发 revision 后会丢写或浪费一遍 LLM 重跑。
+> 这两条是 C 级前置,不修不放开。其余硬伤(含体验)清单见12.5。
+
+---
+
+## 12.3 【C1】检索层可见性硬伤(必须最先修)——`storage/qdrant.go` + `kbase_search`
+**证据:**
+- `kbase_dir/kbase_file/Rename/Delete/List` 全部传 `scope(public/private)+owner_user_id`;私有库 owner=该 user,公有=0(`api/handler/kbase.go`)→ 文件浏览/写被堵。
+- 但 AI 生产检索 `api/service/kbase_search.go::SearchKbase/SearchKbaseSentences` 与 `censor.Searcher`(`kbase_searcher`)只带 `tenantID+fileIDs`;QA 的 `AskQABot→kbaseRetriever.Retrieve`(qa.go)更是**只传 tenantID 不带 owner**。
+- `storage/qdrant.go::toPointStruct` payload **没有 `scope`/`owner_user_id` 字段**(只有 tenant/file/chunk/latest/version/content/chapter),```searchFilter``` 只 `tenant_id + latest + (可选file_id)`。
+
+**后果(说人话):** 普通用户 B 不能进 A 的私有库目录看,但他的**AI 问答/稿件生成若不勾紧范围,**把 query 丢向 Qdrant 时,**只过滤了租户,命中了 A 的私有切片也会被回来**(同租户,tenant 过滤放行)。文档说"私有库仅本人可见"被旁路了。这是当前系统**最该先补**的洞,不止体验。
+**修复方向(可落地的两条正交防线):**
+1. **索引时打上可见平面**:在 `QdrantVector` 与 `toPointStruct` 增加 `owner_user_id` 与 `scope`(公有 owner=0/标记 shared),检索请求显式带 `{tenant, scope∈[public, {scope:'private',owner=me}]}`——**实现要点是把"文件系统那套可见性判定"复用到向量检索。**
+2. 检索 token = `tenant+可见scope+owner`;而**勾选fileID仍需再用 `RequirementFileIDScope` 在同可见集合内校验**,若发现请求 fileID 不属于本人/公有可读范围则拒绝。
+3. 附录最小校验:用一个**新增集成测试用例**:同租户两个用户,各自私有库;用户 B 的 QA/claim 检索不得返回 A 的私有片(P2 完整做,但至少要能回归)。
+   > 这条同时解决"QA default 全租户"这个体验是灾难的合流点。
+
+---
+
+## 12.4 【C2】稿件版本写并发——`storage/article.go` + api 上游
+**证据:**
+- `model.Article.CurrentVersionNo` 与 `ArticleVersion.VersionNo`;latest= `GetLatestArticleVersion`(按 VersionNo) 。
+- 新增/修订先后都在应用内 `VersionNo= prev.VersionNo+1`(`revise.go:86,409`;`generation.go` 取 requirement.version),**没有 `Where("current_version_no=?")` 的 compare_and_swap**。
+- 唯一防线是 `uniqueIndex:(article_id,version_no)`——两个并发写同一 version 号会有一个在 `tx.Create` 撞唯一键**,而它通常在花掉整遍 LLM/嵌入之后才发生**,浪费且无法优雅转交。
+**后果:** AI-only + 作者单开一篇稿,通常串行、风险低;但 **一旦 rev-2 允许人直接编辑→人人都会在稿件上做编辑→并发编辑/同时 revision 的新常态下**,无锁会成为数据错乱的源头。
+**修复方向(C 级、稳、改动小):**
+1. 允许编辑 = 前端把修订也**当作一次"对象=Article.VersionNo 的资源",用乐观锁提交**`{base_version_no}`;后端 `UPDATE article SET current_version_no=? WHERE id=? AND current_version_no=base`;CAS 失败返回 409 + 最新版,前端提示"稿件已在你编辑期间被更新,请重载最新版再改"(体验上也最合理,绝不盲目覆盖)。
+2. 这样把"唯一索引兜底"升格为"精确的前置 CAS + 可告知用户的冲突语义",放开手编才安全。
+
+---
+
+## 12.5 【混合写作可实施设计】—— 不是"随意改任何字符",而是"人在受控段落里直接编辑 + 每次保存跑轻治理"
+> 说明:本节是对 rev-2 §8.2-Q3("推倒'禁手编',改成'人机混合写作'")的**校准与收敛**——Q3 立起的是"人可直接改、而非只能 AI"的方向主张;12.5 把它落到**可分阶段、不推翻系统、且能保住句级治理/版本/source** 的可实施边界(先句/段级受控编辑,前不急着开全稿富文本;要整篇从外部稿起稿则走"导入 skeleton")。下面开始可落地细节。
+> 目的:政企文案真正高频的"改一句/调段/套自家用语/把人稿拼接",而不失去痕迹,也不让 AI 全权接管。**不是把整系统变成富文本自由草稿,也不是一刀切禁改。**
+
+### 12.5.1 交互/边界(给前端与后端,能直接做 UI)
+1. 稿件区域三个"身份"是并存的,由一段文本当前**是否"脏"**决定:
+   - `AI 生成(snapshot)`句:显示来源 tooltip(§9.2);
+   - 人工编辑开启后,saved 但未被治理确认 = **dirty(=pending human edit)**,黄点提醒,保留原句 diff;
+   - 已跑过 revision(轻治理)承认 = **accepted**,继续给 tooltip/免责。
+2. 允许编辑的面:**单句/整段**直接改文本,而不是整稿富文本;这样治理粒度与 `sentence` 对齐(existing `article_sentences` 已经是 unit)。
+3. 一次"保存我的改动" = 提交一个 `run{revision, base_article_version, changed:{index,new_text}[]}`,让 §3.4/12.4 的 Writer/Verify 处理这批改动,而**不是把你丢回整稿自由编辑的失控区**。UI 上用户并不感知 agent 内部,只知道"保存 → 系统会检查改动里若引入要据的无源句会提醒我"。
+4. 是否保留/降级原句的行为:**保存前就给 preview**:系统会说「此改动仍受原句证据支撑?」或判断「新增断言缺源」,给出保留改动/回退/统一降级三选项——把"禁手编教条"换成**审批式的可放弃**。
+
+### 12.5.2 后端最小路径(改动小,复用)
+- 复用现有 `run:revision`/`ReviseSentenceFull`/`AppendArticleContent` 作为载运,但**把输入从"单 instruction 字符串"扩成 "直接 new_text + 所属 sentence_index"**(这就是最简的"人直改"载体);
+- 治理(Guardian/RuleVerifier)照旧跑,产出 accepted / no_source(黄点) / request_human 三级;
+- 只有 accepted 才把 `dirty` 句刷新成新的 accepted 句与 source 工具提示;no_source/request_human 保留用户改动但展示黄标并允许人工标记 source/no_source。
+- 由此,"人改的稿"与"AI 稿"是在**同一条 run+治理管线**,只是来源标记不同(source=manual)。这是一致且可审计的,不是两个世界。
+
+### 12.5.3 “是否该放开全局富文本”要不要做:诚实给答案
+- 我建议**一开始不放开‘整稿任意编辑’自由富文本**,先做 12.5.1 的**句/段粒度受控编辑**——因为:
+  1. 现有单位就是 sentence/paragraph,粒度自由太多会让"治理+版本+source"全部失效;
+  2. 政企文案的真实结构其实多在"句/段",大字糊改反而少见;
+  3. 真要整篇改的人场景(拿别人整稿当模板),更适合“新建稿 → 导入把原文放进来 → 逐段治理”,仍是句段级。
+- 但为了“可拼接他人稿”,给**"导入文本作为 skeleton/draft"**入口(把导入文本也分段成句,统一进入同一治理管线),从而不靠"全稿富编辑"也能满足“拿素材稿起稿”。——这是我的建议:**先句/段级受控编辑+导入 skeleton**,推后"全稿富文本"。
+
+### 12.5.4 一步到位的话是不是更值得? 
+- 若评估允许,也可以把"直接编辑"做成**每 sentence 就地 textarea**,保存 = 12.5.1 的治理提交——体验接近"像 Word 一句一句改",但保存时后端仍跑治理。这其实就是富编辑的最大安全化版本。**是否全稿富文本是"体验 vs 治理安全"的取舍,rev-3 把这个取舍显性列出而不再回避。**
+
+---
+
+## 12.6 硬伤评审清单(技术 + 用户体验,源码佐证;后续逐项开 ticket)
+
+### 12.6.A 技术/数据
+| # | 硬伤 | 证据 | 修复/是否需要 C 前置 |
+|---|------|------|----------------------|
+| H-U1 | **检索层 owner/scope 缺失(越权旁路)** | `searchFilter` 只 tenant+latest;Qdrant payload 无 scope/owner;QA 全租户 | **C1**,见12.3 |
+| H-U2 | **稿件版本无乐观锁** | `VersionNo=prev+1` 内存算;仅 uniqueIndex 兜底,并发丢写/重跑 LLM | **C2**,见12.4 |
+| H-U3 | “§0.1 C6 重复首检”仍在(`retrieve` 又再 `checker`) | `orchestrator.go::Generate` 先 Retrieve 再 ClaimPlanner.Cover,用后者覆盖 | P1 顺手删冗余 |
+| H-U4 | `EvidenceBinding` 无 source 原文 → tooltip/清单空洞 | `model/article.go`;`ListArticleBindings` 直 Find | §9.2 C,必先修 |
+| H-U5 | integrate 测试大量依赖外部服务的 build tag(generation/qabot/dispatcher等),`go test ./...`未必覆盖核心多agent逻辑,回归面易漏多 agent 增量 | 测试是 `_integration`,`scripts/smoke` 需 api+worker 起 | 加纯 unit 判定层测试(rule/guardian state machine),减少对外部全依赖 |
+| H-U6 | 稿件 revision/append 内 `PersistRetrievalBatch` 失败只 `_ = berr` 吞掉;导出锁定状态机部分依赖 UI | revise.go/revise/append | 落库失败须能显式返回,而不是静默 |
+
+### 12.6.B 用户体验
+| # | 硬伤 | 证据 | 修复 |
+|---|------|------|------|
+| H-X1 | 稿件是一整块 `full_content` pre-wrap 文本,无篇章/段落/标题可读排版 | `WorkspaceDetail` `Typography.Paragraph pre-wrap` | §9.1 结构化渲染 |
+| H-X2 | 证据只有“证据 xN”tag,无原句 tooltip;丢失“哪句来自哪份原文” | 同 U4 + 前端 | §9.2 tooltip/source |
+| H-X3 | 稿件阶段"改稿对话"没真正做:现有 `sendChat` 固定 `target_type='requirement_field'`,且没有“改这一句”的锚点动作 | `WorkspaceDetail.tsx sendChat target_type` | §9.3 sentence 锚点就地道改 |
+| H-X4 | 知识库面板对"公有/私有"语义、回答与稿件检索范围无明确人话提示;公有库"普通用户可引用"是否含"AI 能引用"说不清 → 权限不透明 | 结合 H-U1 | 提示对话 + 权限文档 |
+| H-X5 | "到处是功能不知干嘛":侧栏/按钮缺少"这是干嘛、点了会怎样"的人话;生成中无进度只一个 loading | `SpaceCombo`/`generating` boolean | §9.4 动线+ tooltip + run 状态人话 |
+| H-X6 | 上传/覆盖/删除等破坏性操作目前对"影响证据/版本引用"的无提醒(删掉某 doc,旧稿证据仍指向它) | storage 软删+旧证据保留 | UI 提醒"该资料已被引用N稿"——二期数据上已可(见 db 预留),前端要感知 |
+
+---
+
+## 12.7 rev-3 落地优先级(给一份能排期的最小序列,把 C 级前置放最前)
+1. **C1(S1 检索权限)** —— 不修则放开手编/QA 问答有越权, 先堵。
+2. **C2(S2 乐观锁 CAS)** —— 不修则放任手动编辑的并发写会错乱。
+3. **D0(sources 空洞)** U4/H-X2 前置 —— 把 `source_text/file_name/chapter` 冗余进 response, 让 tooltip 与清单不是空壳。
+4. 然后才开 §9(排版/动线/tooltip/就地改)与 §12.5 混合写作受控编辑。
+5. 同步去除 H-U3 冗余检索, 加 rule/guardian 的 pure-unit 层, 收敛 revision 双实现(C5)。
+
+> 若无以上排期而直接放“允许人工编辑”,会先踩到 H-U1(越权)与 H-U2(并发丢写),因此 rev-3 明确把这两条列作“放开手编”的不可绕前置。
+---
+
+## 12.8 至此 rev 系列的完整立场(留给评审快速对照)
+- **rev-1** 把"不是 workflow"做进可验证判据(A1/A2/A3)与 run/step 持久体。
+- **rev-2** 把"Agent 是后台可信引擎,前台是能看的公文稿 + 人机好体验"立为产品姿态;并去掉"禁手编"教条的伪洁癖。
+- **rev-3** 把 rev-2 可实施性 pin 到代码(C1 检索越权/C2 乐观锁 + sources 空壳),让人机混合写作与证据 tooltip 是"可改造得真能用"而非"纸面推演",并给出一份能排期、分 C 级前置的落地顺序。
+>
+> 我们的立场总结成一句给评审的话:**这套 Agent 化不是在"看得见的控制台"上,而是在后台守卫"可读、可引、可改的人稿体验";而让人能安全地直接编辑 AI 稿的前提,是先把代码里已被我核实的检索越权与版本并发两处硬伤用乐观锁与可见性平面堵住,再逐步开放句/段级编辑。**
+
