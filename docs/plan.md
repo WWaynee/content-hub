@@ -94,5 +94,5 @@
 ## 阶段 8 · 收尾
 
 - [x] Prometheus 指标 + 健康检查（/health 依赖状态）
-- [ ] 上线前安全清单（JWT 换密钥 / GIN_MODE=release / CORS 白名单 / 传输 HTTPS）
+- [ ] 上线前安全清单（JWT 换密钥 / GIN_MODE=release / CORS 白名单 / 传输 HTTPS；`/metrics` 当前无鉴权——上线时在内网/反代层按 allowlist 收口，勿用业务 JWT 套抓取路径，见 docs/rebuild 决策 dec-76320c2713fa356）
 - [x] 端到端冒烟脚本 / 多租户隔离对抗测试
