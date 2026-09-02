@@ -44,7 +44,7 @@ func TestPersistArticleSnapshot(t *testing.T) {
 		}},
 	}
 
-	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, 1, article, evidence)
+	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, article, evidence)
 	if err != nil {
 		t.Fatalf("PersistArticleSnapshot 失败: %v", err)
 	}

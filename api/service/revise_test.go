@@ -34,7 +34,7 @@ func TestApplyArticleRevision(t *testing.T) {
 			{Text: "句1", EvidenceRefs: []uint64{1}},
 		},
 	}}}}}
-	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, 1, article, evidence)
+	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, article, evidence)
 	if err != nil {
 		t.Fatalf("落初稿快照失败: %v", err)
 	}

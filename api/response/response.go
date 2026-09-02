@@ -9,12 +9,14 @@ import (
 // ============ 错误码常量 ============
 
 const (
-	CodeSuccess      = 0
-	CodeBadRequest   = 400
-	CodeUnauthorized = 401
-	CodeForbidden    = 403
-	CodeServerError  = 500
-	CodeRateLimited  = 429
+	CodeSuccess         = 0
+	CodeBadRequest      = 400
+	CodeUnauthorized    = 401
+	CodeForbidden       = 403
+	CodeServerError     = 500
+	CodeConflict        = 409
+	CodeVersionConflict = 409 // 稿件/资源版本冲突（乐观锁：内容在操作期间被他人更新）
+	CodeRateLimited     = 429
 )
 
 // Body 统一响应结构体：code=0 成功，非 0 失败。

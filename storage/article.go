@@ -64,6 +64,32 @@ func GetLatestArticleVersion(ctx context.Context, articleID uint64) (*model.Arti
 	return &v, nil
 }
 
+// ListArticleVersions 列出某稿件的全部版本快照（按 version_no 升序）。
+func ListArticleVersions(ctx context.Context, articleID uint64) ([]model.ArticleVersion, error) {
+	var list []model.ArticleVersion
+	if err := GetDB().WithContext(ctx).Where("article_id = ?", articleID).
+		Order("version_no ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// CASBumpArticleCurrentVersion 原子地（乐观锁）把某稿件的 current_version_no 从 expected 提升到 next。
+// 返回 bool 是否加锁成功：true=该次是唯一把 expected→next 的提交者；false=行已被并发改写或打不到 expected
+// （此时调用方应视为版本冲突，不得再落一份与之重复的新 version）。
+//
+// 依赖 mysql 行更新返回 RowsAffected==1；deleted_at 过滤软删。
+func CASBumpArticleCurrentVersion(ctx context.Context, articleID, expected, next uint64) (bool, error) {
+	res := GetDB().WithContext(ctx).
+		Model(&model.Article{}).
+		Where("id = ? AND current_version_no = ?", articleID, expected).
+		Update("current_version_no", next)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // ListArticleSentences 列出某版本的全部句子。
 func ListArticleSentences(ctx context.Context, versionID uint64) ([]model.ArticleSentence, error) {
 	var list []model.ArticleSentence

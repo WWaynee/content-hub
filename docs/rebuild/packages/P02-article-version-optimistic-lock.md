@@ -1,8 +1,8 @@
 # P02 · 稿件版本并发：乐观锁 / Compare-And-Swap
 
 - RFC 出处：rev-3 §12.4 / C2；README 顺序=P02
-- 状态：待开工
-- 前置：无（与 P01 可并行）
+- 状态：**DONE**（已实现并真验，见文末“完成记录”）
+- 实现语义：article 版本号由乐观锁自增决定（`PersistArticleSnapshot`/`ApplyArticleRevision`/`AppendArticleContent` 在写快照前均先 `CASBumpArticleCurrentVersion`，只有把 `current_version_no: base→base+1` 抢到的唯一写者才继续；冲突方返回 `ErrArticleVersionConflict`）。P01/P02 独立可并行。
 - 目标：稿件新增/修订/resave 不再依赖"内存 `prev.VersionNo+1` + 唯一索引最后兜底",改成一个能让并发写**在提交前就探测到冲突并友好告知**的乐观锁。
 
 ---
@@ -40,3 +40,20 @@
 
 ## 6. done gate
 “P02 done” = 并发 CAS 测试通过(1 成 1 拒不重复)+ 未额外增加 article_version + 单测与基线绿。
+
+---
+
+## ✅ 完成记录（真实验收）
+- **已实现**：
+  - `storage/article.go`：新增 `CASBumpArticleCurrentVersion(ctx, articleID, expected, next)(bool,error)`(mysql `UPDATE ... WHERE current_version_no=expected`, RowsAffected==1 判成功) 与 `ListArticleVersions`（全版本列表，测试用）。
+  - `api/service/generation.go`：去掉外部传入 versionNo 的参数，首次生成 current 从 0→v1，已有则 `base→base+1` CAS 抢号；失败即 `ErrArticleVersionConflict`（不再带着旧 `req.Version` 覆盖 current，消除与 revise 的版本两源）。
+  - `api/service/revise.go`：`ApplyArticleRevision` 与 `AppendArticleContent` 写新版本前同走 CAS 抢号（冲突不落库、不跑后续写入）。
+  - `api/service/version_conflict_integration_test.go`（新，integration，纯 MySQL 不触网）：`TestConcurrentGenerationVersionCAS` 与 `TestRevisionApplyCAS`。
+  - handler/response：`ErrArticleVersionConflict` → `response.CodeVersionConflict(409)` 可读 message（前端在 P12 用 409 刷新提示；P02 先保后端一致+友好文案）。
+- **验收（本机真 MySQL，非 skip）**：
+  - `go test -tags=integration -run 'TestConcurrentGenerationVersionCAS|TestRevisionApplyCAS' ./api/service/ -count=1 -v`：
+    - generation 并发 6 → **成功=1、冲突=5、版本唯一且连续** PASS
+    - revision 顺序 1→2→3；并发 4 → **成功=1、冲突=3、无重复版本** PASS
+  - `go test ./... -count=1`（全量纯单测）与 `go test -tags=integration -run '^$' ./...`（integration 全源码编译）通过；`TestMultitenantIsolation` 仍绿。
+  - 既有在版本号语义上的相关 `PersistArticleSnapshot(ctx,…,article,evidence)` 签名同步：调用方(handler/append_integration/revise_integration/generation_test/export_test/revise_test)已去掉第 4 参 `1`——新语义下首篇仍是 v1、与旧行为对齐。
+- **兼容/已知**：本次把“article 版本号随 requirement.version”解耦为“article 自身单调+1”，与需求单惰性失效(仅以检索批次版本+requirement.version 判定)正交，无回归；历史遗留 article 若 current 与已列最新不齐，在首次新写时会被 CAS 平滑校正到“最新+1”。

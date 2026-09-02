@@ -38,7 +38,7 @@ func TestExportArticle(t *testing.T) {
 			Sentences: []agent.Sentence{{Text: "引用句。", EvidenceRefs: []uint64{0}}},
 		}},
 	}}}
-	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, 1, article, evidence)
+	verID, err := PersistArticleSnapshot(ctx, tenantID, w.ID, article, evidence)
 	if err != nil {
 		t.Fatalf("落快照失败: %v", err)
 	}

@@ -46,7 +46,7 @@ func TestAppendArticleContent(t *testing.T) {
 	article := &agent.Article{Title: "稿", Sections: []agent.Section{{Paragraphs: []agent.Paragraph{{
 		Sentences: []agent.Sentence{{Text: "假期共9天。", EvidenceRefs: []uint64{}}},
 	}}}}}
-	if _, err := PersistArticleSnapshot(ctx, tenantID, w.ID, 1, article, nil); err != nil {
+	if _, err := PersistArticleSnapshot(ctx, tenantID, w.ID, article, nil); err != nil {
 		t.Fatalf("落快照失败: %v", err)
 	}
 

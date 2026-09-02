@@ -88,9 +88,13 @@ func GenerateArticle(c *gin.Context) {
 		_ = berr
 	}
 
-	verID, err := service.PersistArticleSnapshot(c.Request.Context(), tenantID, wid, req.Version, res.Article, res.Evidence)
+	verID, err := service.PersistArticleSnapshot(c.Request.Context(), tenantID, wid, res.Article, res.Evidence)
 	if err != nil {
 		restoreWorkspaceStatus(c, wid, prevStatus)
+		if errors.Is(err, service.ErrArticleVersionConflict) {
+			response.Fail(c, response.CodeVersionConflict, service.ErrArticleVersionConflict.Error())
+			return
+		}
 		response.ServerError(c, "稿件落库失败："+err.Error())
 		return
 	}

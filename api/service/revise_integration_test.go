@@ -52,7 +52,7 @@ func TestReviseSentenceFull(t *testing.T) {
 			{Text: "请各单位做好值班安排。", EvidenceRefs: []uint64{}},
 		},
 	}}}}}
-	if _, err := PersistArticleSnapshot(ctx, tenantID, w.ID, 1, article, evidence); err != nil {
+	if _, err := PersistArticleSnapshot(ctx, tenantID, w.ID, article, evidence); err != nil {
 		t.Fatalf("落快照失败: %v", err)
 	}
 

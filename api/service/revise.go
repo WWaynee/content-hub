@@ -20,10 +20,10 @@ import (
 type ReviseSentenceInput struct {
 	WorkspaceID     uint64
 	TenantID        uint64
-	TargetIndex     int               // 被改句序号（在整篇稿件的句子序列中的下标）
-	NewText         string            // 新句子文本
-	NewEvidence     []agent.Evidence  // 被改句重检测到的证据
-	NewEvidenceRefs []uint64          // 被改句新绑定的证据索引（指向 NewEvidence）
+	TargetIndex     int              // 被改句序号（在整篇稿件的句子序列中的下标）
+	NewText         string           // 新句子文本
+	NewEvidence     []agent.Evidence // 被改句重检测到的证据
+	NewEvidenceRefs []uint64         // 被改句新绑定的证据索引（指向 NewEvidence）
 }
 
 // sentDraft 句子草稿，记录其原句 index（用于绑定关联）。
@@ -52,6 +52,16 @@ func ApplyArticleRevision(ctx context.Context, in ReviseSentenceInput) (uint64, 
 	if err != nil {
 		return 0, err
 	}
+	// 乐观锁：原子地把 current_version_no: baseVer → nextNo。只有唯一成功者继续写快照；
+	// 并发另一方 CAS 失败即返回冲突，不再产生重复 version_no。
+	baseVer := uint64(a.CurrentVersionNo)
+	nextNo := baseVer + 1
+	if ok, cerr := storage.CASBumpArticleCurrentVersion(ctx, a.ID, baseVer, nextNo); cerr != nil {
+		return 0, fmt.Errorf("推进稿件版本失败: %w", cerr)
+	} else if !ok {
+		return 0, ErrArticleVersionConflict
+	}
+
 	if in.TargetIndex < 0 || in.TargetIndex >= len(sents) {
 		return 0, fmt.Errorf("目标句子序号越界: %d", in.TargetIndex)
 	}
@@ -83,10 +93,10 @@ func ApplyArticleRevision(ctx context.Context, in ReviseSentenceInput) (uint64, 
 		ArticleID:         a.ID,
 		WorkspaceID:       in.WorkspaceID,
 		TenantID:          in.TenantID,
-		VersionNo:         prev.VersionNo + 1,
+		VersionNo:         int(nextNo),
 		FullContent:       buildContentFromDrafts(drafts),
 		Status:            "completed",
-		ReferencedVersion: int(prev.VersionNo),
+		ReferencedVersion: int(baseVer),
 	}
 
 	// 事务落库：version → sentences（拿新 ID）→ bindings（按 index 关联 + 被改句新证据）
@@ -362,6 +372,15 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 		_ = berr
 	}
 
+	// 乐观锁：原子地把 current_version_no: baseVer → nextNo；并发冲突返回，不产生重复 version_no。
+	baseVer := uint64(a.CurrentVersionNo)
+	nextNo := baseVer + 1
+	if ok, cerr := storage.CASBumpArticleCurrentVersion(ctx, a.ID, baseVer, nextNo); cerr != nil {
+		return 0, fmt.Errorf("推进稿件版本失败: %w", cerr)
+	} else if !ok {
+		return 0, ErrArticleVersionConflict
+	}
+
 	// 现有句子绑定按 sentence_id 分组（继承）
 	bindBySent := map[uint64][]model.EvidenceBinding{}
 	for _, b := range binds {
@@ -406,10 +425,10 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 		ArticleID:         a.ID,
 		WorkspaceID:       workspaceID,
 		TenantID:          tenantID,
-		VersionNo:         prev.VersionNo + 1,
+		VersionNo:         int(nextNo),
 		FullContent:       buildAppendedContent(sents, newText),
 		Status:            "completed",
-		ReferencedVersion: int(prev.VersionNo),
+		ReferencedVersion: int(baseVer),
 	}
 
 	err = storage.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {

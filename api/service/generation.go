@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,10 @@ import (
 	"github.com/WWaynee/content-hub/storage/model"
 )
 
+// ErrArticleVersionConflict 稿件版本冲突：当前 current_version_no 已在本次并发中被其它写者提升，
+// 本次写入不应再产生一份可能重复的新 version。由乐观锁 CASBumpArticleCurrentVersion 返回 false 时产生。
+var ErrArticleVersionConflict = errors.New("稿件已被更新，请以最新版本重试（版本冲突）")
+
 // 稿件生成产物落库：把 agent.Article（句级证据绑定）转成 DB 快照。
 
 // bindingDraft 落库前的证据绑定草稿（记录它属于哪个稿件的句子 index）。
@@ -20,24 +25,37 @@ type bindingDraft struct {
 	binding       model.EvidenceBinding
 }
 
-// PersistArticleSnapshot 把一次 generation/revision 的稿件落成 article_version 快照。
-func PersistArticleSnapshot(ctx context.Context, tenantID, workspaceID uint64, versionNo int, article *agent.Article, evidence []agent.Evidence) (uint64, error) {
-	// 1. 找到或创建 article 主记录
+// PersistArticleSnapshot 把一次 generation 的稿件落成 article_version 快照。
+// 版本号由乐观锁(CAS)自增决定：并发写同一 workspace 只允许一个递增成功，另一方返回 ErrArticleVersionConflict，
+// 从而在落库前就把“重复 version_no”杜绝（不再依赖 article_versions 唯一索引在创建时才失败）。
+func PersistArticleSnapshot(ctx context.Context, tenantID, workspaceID uint64, article *agent.Article, evidence []agent.Evidence) (uint64, error) {
+	// 1. 找到或创建 article 主记录（不设版本，created 后 current=0 → 首次快照 v1）
 	a, err := storage.GetArticleByWorkspace(ctx, tenantID, workspaceID)
 	if err != nil {
 		a = &model.Article{
-			WorkspaceID:      workspaceID,
-			TenantID:         tenantID,
-			CurrentVersionNo: versionNo,
-			Title:            article.Title,
-			Status:           "generated",
+			WorkspaceID: workspaceID,
+			TenantID:    tenantID,
+			Title:       article.Title,
+			Status:      "generated",
 		}
 		if cerr := storage.CreateArticle(ctx, a); cerr != nil {
 			return 0, fmt.Errorf("创建稿件记录失败: %w", cerr)
 		}
 	} else {
-		storage.GetDB().WithContext(ctx).Model(&model.Article{}).Where("id = ?", a.ID).
-			Updates(map[string]interface{}{"current_version_no": versionNo, "title": article.Title})
+		if uerr := storage.GetDB().WithContext(ctx).Model(&model.Article{}).Where("id = ?", a.ID).
+			Update("title", article.Title).Error; uerr != nil {
+			return 0, fmt.Errorf("更新稿件标题失败: %w", uerr)
+		}
+	}
+	// 乐观锁：原子地 current_version_no: base → base+1；只有唯一成功者能继续写快照
+	base := uint64(a.CurrentVersionNo)
+	next := base + 1
+	ok, cErr := storage.CASBumpArticleCurrentVersion(ctx, a.ID, base, next)
+	if cErr != nil {
+		return 0, fmt.Errorf("推进稿件版本失败: %w", cErr)
+	}
+	if !ok {
+		return 0, ErrArticleVersionConflict
 	}
 
 	// 2. 展开 article → sentences + binding 草稿
@@ -80,10 +98,10 @@ func PersistArticleSnapshot(ctx context.Context, tenantID, workspaceID uint64, v
 		ArticleID:         a.ID,
 		WorkspaceID:       workspaceID,
 		TenantID:          tenantID,
-		VersionNo:         versionNo,
+		VersionNo:         int(next),
 		FullContent:       full,
 		Status:            "completed",
-		ReferencedVersion: 0,
+		ReferencedVersion: int(base),
 	}
 
 	// 3. 事务落库：article_version → sentences → bindings（按 sentenceIndex 关联句 ID）
