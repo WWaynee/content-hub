@@ -241,3 +241,155 @@ func (a) RetrieveClaim(claim, scope, budget) (respEvidence, quality, errOnBudget
 - `agent/orchestrator/reviser.go`,`revision_apply.go`(C5 死代码)
 - `web/src/pages/WorkspaceDetail.tsx`(C9 target 固定)
 - `llmclient/*`(HTTP + 指数退避 + 熔断,在异步 run 中需复用其 ctx 超时)
+
+---
+
+# §8 rev-2 · 面向「真实使用场景」的立场修正与体验重建
+
+> rev-2 是一次**方向性补记**(不是小补丁),目标是回答我们自己最该问、却没在 rev-1 里问够的一层:
+>> **这套 Agent 化落地后,真的让每天在用的政企普通文案过得更好吗?还是我只是造了一个"技术上很 Agent、用户却不想看"的机器?**
+>
+> rev-1 的默认姿态(第2/3章)把"计划-执行-验证-裁决"这一整条**过程摊到用户面前**:run/step 进度、Guardian,尤其是`ask_human`被设计成"用户一条条看缺哪些点、再给某句降级还是删"。这对内容评审足够,但对**普通政企文案是一次认知灾难**——他要的不是在旁边看 agent 怎么思考,而是"我说话→我要的稿子对、句子有出处、要改某处就改一处"。
+> rev-2 据此把整个方案的用户体验姿态从 **process-first(过程外露)** 修正为 **people-first(体验第一、过程内收)**。技术结论(多 Agent + 顽固可审计 run)不变,但它必须**收到后端跑、只把「需要人拍板的决策」以一句话露出**,而把绝大多数产品功夫放在"稿件长得像公文/能舒服引用/能舒服改"上。
+
+## 8.1 一句话立场
+> **Agent 协作是引擎,不是界面;用户的界面始终是人话 + 一篇可读、可引、可改的公文稿。** 任何"把 agent 调用过程/step 摊成用户操作"的设计,宁可舍弃,也不该让普通文案去对抗复杂度。
+
+---
+
+## 8.2 先回答四记来自真实使用场景的尖锐质疑
+
+### Q1 你是不是把"agent 一次生成"做成用户天天要盯的控制台?
+**这是 rev-1 最危险的自嗨。** 答案要对普通用户**全程折叠**:
+- 生成 = 点一次"生成/重新生成",期间只给**一句人话状态**("正在查资料…已引用X份材料…正在校验是否有编造…"),对应到 run 的 step 映射成**用户能看懂的话**,而不是"What: retrieve, action: triage"这类内部词;
+- 真正的 run/step/evidence 明细全部进**"溯源详情"二级面板 / 导出审计单**,默认收起,供需要核证的人(审核、管理员)点开——**普通作者不被迫理解 agent**;
+- `ask_human`:不该是"让你逐条审缺证清单再逐句授权",而是**把待确认收敛成一句用户话术**——"这段需要的数据(KBase 里没有:『2023年演出场次』)。你要 (a) 我补"改成不放具体数 / (b) 你先去资料库里补一点材料我重写 / (c) 放弃这段"。用户只做单选,不接受 agent 工作台。
+- **对 test**:那些"ask_human/缺证妥协"的 agent 交互,其实对内容相当少见;用户常见的只是"生成/改一句"。因此 UI 的工作量大部分应投在"稿件本身好看可引可改",而不是 agent 控制台。
+
+### Q2 你说"句级可溯源",但前端最多只能拿一串 `doc_sentence_id`——到底怎么让作者"看懂"出处?
+**这是产品价值的最硬的空洞,且是代码级的。** (证据见 `storage/model/article.go` 的 `EvidenceBinding`——只存 `DocFileID`/`DocSentenceID` 两个外键,不冗余来源原文、文档名、章节、版本。)
+- 后果:`GET /workspaces/:id/article` 里 bindings 只有两个 id,前端即便想做"悬浮显示原句"也拿不到原文。所谓"可溯源"成了"你看有个(看不见内容的)出处",而非"你看这句话来自《2023年度运营总结》第二部分那句原文"。
+- rev-2 修复(数据+接口层,否则前端怎么美都是空壳):
+  1. DB 侧在写 binding 时把来源切片原文、文档名、章节标题、版本 md5 **冗余进一个带 json 的导出结构**(或对 `doc_sentences`/`doc_versions` 做一次性联表);关键是在 `GET article`/导出/证据清单里**返回人可读的 source**:`{source_text, file_name, dir_name?, chapter_title, version_md5}`。
+  2. 给出**纯公文(无源)句**也要能显示"本句为 AI 通稿语,无引用"的区分态,不能混进有据句的 tag 里。
+  3. 导出 md 时,证据清单里每个句子条目都应含**可复制的原文引文**(这正是产品卖点该兑现的地方)。
+
+### Q3 政企文案的日常真在"让我一句一句改 AI 稿",而不是"全程不让手编、只准 AI"——你这个"禁止任意字符编辑"是教条吗?
+**Rev-1/原 features 都写死"禁止任何手动编辑"。我倾向推翻它,改为"人机混合写作"。**
+- 理由(使用场景):对政企使用者,拿到 AI 初稿后高频是**大段拼接、删改、替换、套自家公文体**。死死锁成"只能 AI 改",让核心价值里最日常的"批量把人稿合进来"反而没法用,是产品为了"溯源干净"而牺牲了真实生产。这不是"为了 Agent 而 Agent",是**与目标用户的能力冲突**。
+- rev-2 的分层主张(**人可编 + 引用治理不退出**):
+  - **直接编辑开放**,且前端支持段落/整句的普通文本输入;
+  - 任何"新增/修改句"由系统跑一次**轻量 Revision-run**(就是现有 `run:revision` 那条改句链路)做"这句现在是否需要证据、有没有断言、命题是否新出数据断言",给**三态**:仍有据 / 变无据需人工标注(给个黄点提醒) / 纯措辞无需据;
+  - 因此"可溯源性"从"禁止手编所以一定来自AI"变为"**即使人工改动,系统也持续告知你哪些句子证据失效/待复核**",这才是更可信也更实用的模型。
+  - 风险评估:代价是修订不再"全自动干净",换来的是真实把"人写的稿子"融入并持续治理;若要保底,可选择"工作在 AI 生成版本上但在处理中给 diff 与证据漂移提示"。
+
+### Q4 稿件长得像一堵预格式文本墙——用户怎么会知道能不能信、谁引了什么?
+诚然。rev-1 把"可信"做成了后端判定,却**没有在渲染层变成"看得懂的引用与被引用"**。rev-2 专门给前端稿件体验开一整章(§9)。
+
+---
+
+## 8.3 rev-2 对 rev-1 的结构性改动清单
+1. **把 agent 协同全程收到后端 run 与 `溯源详情`面板内**(第2/3章的演进,默认折叠),用户主界面绝不展示 step/role 内部词(除管理员/审核模式)。
+2. **数据/接口补"人读 source"**:binding 关联交出 `source_text / file_name / chapter_title / version`,端到端(DB→API→tooltip→导出审计单)都能体现"这句话来自哪份原文"。
+3. **推倒"禁止手编"教条,改成"人机混合写作 + 证据漂移治理"**,把人工改动纳入 Revision-run 检测无据句,给黄点提醒而不是拒绝。
+4. **稿件渲染与交互重做到可读、可引、可改**(§9),这是用户体验与技术价值兑现的主要载体。
+
+> 这些改动**不与 rev-1 的核心判据冲突(A1/A2/A3 依旧),而是把它放回正确位置**:Agent 的自洽循环在引擎里为可信保驾护航;人在界面里只面对"选可信写法的稿子 + 一句待决策的人话"。
+
+---
+
+# §9 rev-2 · 稿件渲染与交互体验重建(直接回应"稿子是一堵文本墙 / 证据硬贴 / 改稿没落地" )
+
+rev-2 判断:**这部分是产品价值能否被看见的主战场**。Agent 再可信,如果稿子长得像预格式文本、证据只是裸 tag、改稿对话没 UI,用户对"可溯源、可协作"的感知就是零。下面按"先可读、再可引、后可改"三层给到能直接落前端的设计。
+
+## 9.1 排版:把"预文本墙"变成"像政企公文"的可读正文
+
+现状 `WorkspaceDetail` 用 `<Typography.Paragraph style={{whiteSpace:'pre-wrap'}}>{article.full_content}</Typography.Paragraph>` 一股脑贴出整块 Markdown 字符串,标题/段落/列表全糊在一段里,无法看。(§-code 证据见该文件 `article.full_content` 整段渲染)
+
+- **直接渲染结构化 Markdown**,而非字符串:复用 `agent.Article{title, sections[{heading, paragraphs:[{sentences}]}]}` 结构(DB 里 `article_sentences` 已带 section/paragraph/sentence_index),把**结构在 DB 端就从 full_content 与 sentences 里一起返回**;前端做真正的 `markdown renderer + 标题层级 + 段落间距 + 首行缩进`,而不是 pre-wrap 一坨。
+- 字体/字重按政企语境:正文用可读衬线/黑体,标题分级(`## 章节` →视觉层级),段间距、行高、标点避讳优化;可选"公文样式预览"(红头/落款)但一期只保证"像篇能看的文档"。
+- 提供**打印/导出与屏显一致**的预览,避免"屏上没排版、导出才突然像样"的割裂。
+
+## 9.2 证据/引用呈现:不是 tag,是「句子内联的出处提示」
+
+> 想清楚关键洞察:**证据不是稿件的旁注,而是句子说法的"脚注/来源"**。最好的形态是贴近原文、随句浮现、默认收敛、可点开成清单,而不是把来源文本硬接在句子后堆成墙。
+
+数据前提(已在§8.2 Q2 建立):`GET article` 必须返回**每句的人读 source**(`source_text/file_name/chapter_title/version`),而不是 `doc_sentence_id` 裸指针。没有这一步,下面一切 UI 都是空壳。前端拿到后:
+
+- **有据句**:在句尾给一个低调小标(如与上标 n),鼠标 hover/点击**浮现 tooltip/气泡**,内容是:
+  - 该句出现的断言写法 → 一条或多条来源,每条含**原文原句引文**($§ source_text)、文档名 + 章节 + 版本;**鼠标失焦/移开自动收起**,左下/右下角给"复制引文"。
+- **无据(纯公文通稿)句**:句尾用一个极淡的"语句"(比如细灰点,不打扰),hover 提示"AI 通稿语句,无外部引用";不与有据混淆。
+- **强制清单态两种呈现**:
+  1. 页面可一键"只看带断言句与证据"(`证据密度视图`):每个断言句折叠展开其 source 清单;
+  2. 导出仍含 §7 的尾部证据清单,但清单要**逐条可读、含原句引文**,不是空引用 id。
+
+## 9.3 改稿:把"点句子→上下文→AI 精改这个句子"真正做出来
+
+> 现状前端没有:稿件阶段连对话面板都固定 `target_type:'requirement_field'`,更不用说"选句改句"。(§-code 见 `WorkspaceDetail` `sendChat` 里硬编码 target_type)
+
+rev-2 前端目标交互(reuse rev-1 的 `run:revision` 改句链路):
+1. **正文任一句可"悬停高亮 + 右侧弹出操作"**:「改这句」「追加到句后」「标记无据(人工确认)」「查看证据」。
+2. 点「改这句」→ 唤起一个**就地输入框**(不是把用户丢去一个泛泛对话框),prefill 现有 `<sentence target_ref+index>`;**提交走 `POST /workspaces/:id/runs {run_type:revision, target_sentence_index, instruction}`**,后端 rev-1 的 RuleVerifier/Guardian 给你回:整句回来了、证据还在/还是要降级/无据漂移——都**以同样 tooltip 交互就地刷新该句**,而不是整页刷。
+3. 「追加到句后」→ 同样地就地追加;总得保留"还能全文重生成"入口。
+4. 所有这些仍然**触发同一个异步 run**,后端自洽;前端只做"句子级就地 diff + 状态气泡",把 agent 的过程藏在一个小 spinner/一句人话里。
+
+## 9.4 使用动线:解决用户"到处是功能不知干嘛"
+- 工作区详情页保留"【需求】|【稿件】|【溯源】"三页签,**需求=改你想要什么,稿件=看她/继续谈/导,**溯源=核证清单与 run 审计(普通用户默认不进去)。
+- 全局把功能收敛成**可控动线**:顶部只有「+新建」「资料库」「我认需求」与右上角账号/退出;任何不明确的入口要么给 tooltip 人话说明,要么干脆不在首屏出现。
+- 「稿件」正文默认就有「改一句」「全文再生成」「导出含证据」「溯源/证据密度视图」几颗明确的 action,而不是散落按钮。
+
+---
+
+# §10 rev-2 · 为上述体验落地的增量数据/接口/REST 草图
+
+> 前文 rev-1 已给 run/step 的持久与异步目录;本节补齐让 §9 兑现所需的那一层"人读 source + 结构化正文 + 就地修订"接口约束。
+
+### 10.1 负载结构(request/response 关键字段,避免 "找不到原文就全空壳")
+`GET /workspaces/:wid/article` 变更为返回渲染所需结构(除 full_content 快照外):
+```
+article {
+  version, title,
+  sections: [
+    { heading,
+      paragraphs: [ {
+        offset,            // paragraph_index
+        sentence_views: [ {          // 逐句,前端就地渲染
+          sentence_index,
+          text,
+          claim_type: bound|plausible-ai|no_source|flag_for_review,  // 参见 RuleVerifier 分级
+          sources: [ { source_text, file_name, chapter_title, version_md5, doc_sentence_id } ] | [] ,
+          needs_human_review: bool, review_note?
+        } ]
+      } ]
+    }
+  ],
+  full_content,            // 保留给整稿导出/兼容
+}
+```
+- 纯公文句 `sources=[]` 但给 `claim_type=plausible-ai`;RuleVerifier 给 `no_source` 只对"被 flag(疑似该有据却没有)"的句,两者 UI 不同声。
+
+增量接口(沿用 §3.5 异步思路,但约束"逐句就地"):
+- `POST /workspaces/:wid/runs`  `{run_type: initial|regenerate}` → 全文再生成,返回 `run_id`。
+- `POST /workspaces/:wid/runs`  `{run_type: revision, targets:[{sentence_index, instruction}|{position:'after',index, instruction}]}` → 句子级/追加。
+- `GET  /runs/:rid`  +  `GET /runs/:rid/steps`:run 状态与 step 明细(管理员/审核视图用;普通作者只在 UI 拿一个可折叠 spinner)。
+- `POST /runs/:rid/decision`  `{decision: override_ok | demote_to_generic | abandon_claim | refill_and_retry}`:对应 Guardian `ask_human` 的单选落地。
+- `PUT /workspaces/:wid/article/sentence/:idx/evidence`  `{flag:'no_source', note}`:人工给某句标"无据待核",反向进入治理。
+
+### 10.2 DB 增量(在 rev-1 的 run 表上追加)
+- `evidence_bindings` 仍持久 doc 指针(审计用),但 **`article_version` 或新增 `binding_presented` 冗余视图**在导出/展示时带人读 source——避免每次查询一堆 join;最简单:写快照时直接把 `source_text/file_name/chapter` 冗余进一个只读导出列(与 §8.2 Q2 一致)。
+- 若 §9.3 要求拿到"解析后的句+段+章节索引",则现 `article_sentences` 的三 index 字段已够;不足的是缺 paragraph_content 级冗余,可在写快照时同存。
+
+### 10.3 别把 rev-1 的 Engine 与 rev-2 的 UI 物理上拆死(保持单仓库落地)
+仅建议把前后端改到"同样一次 run、多处消费":
+- **run 端到端状态机复用**:一次 `generate`/`revision`/`append` 都是"提交 run→(异步)→step 逐段→成功写新 article_version→UI 刷新该句/整稿"。Agent 逻辑只在 coordinator,UI 永远消费同一批 run/version。
+
+---
+
+## §11 rev-2 · 这么改之后,再自问一遍:还会不会被打脸?
+- "你是不是堆了没人用的 Agent?"→ 不会:agent 循环收进 run,UI 主界面是公文稿/sentence 就地交互;普通作者永远看不到 step 词。Agent 的价值由 run 落库审计 + 溯源详情页承接,可点开可证明,但**绝不摊成用户操作负担**。
+- "证据又是贴 id?"→ 不会:rev-2 让 `source_text/file_name/chapter` 从写快照那刻就进导出/展示,句上 tooltip 直接给原句引文。
+- "AI 稿不能手动改,怎么用?"→ 打开手编 + Revision-run 治理;新增句被检测为"疑似需要据却没有"会黄点提醒,而不是拒绝——真实生产可用,溯源也不退化为教条。
+- "稿子没法看/没法信?"→ 按 §9 结构化渲染 + 句内来源 tooltip + 证据密度视图 + 逐句就地改稿 + 明确动线;可信不是隐藏的 tag,而是可悬浮、可复制原句的引号系统。
+>
+> 归结一句:**rev-2 让多 Agent 从"秀给技术评审看"回到"让政企文案安全地用"—Agent 在后台续命可信,前台是可读、可引、可改的人稿体验。**
+
