@@ -102,6 +102,9 @@ type Chunk struct {
 
 type Retrieval struct {
 	TopK int
+	// MinScore 检索相似度阈值：低于该分数的命中判为「不相关」，直接丢弃。
+	// 用于防止把与主题无关的文本（如低相关片段）当作证据返回，进而避免 AI 编造数据。
+	MinScore float32
 }
 
 type RateLimit struct {
@@ -174,7 +177,7 @@ func Load() (*Config, error) {
 		APIKey:         envStr("LLM_API_KEY", ""),
 		BaseURL:        envStr("LLM_BASE_URL", "https://api.deepseek.com"),
 		ChatModel:      envStr("LLM_CHAT_MODEL", "deepseek-v4-flash"),
-		TimeoutSeconds: envIntDefault("LLM_TIMEOUT_SECONDS", 30),
+		TimeoutSeconds: envIntDefault("LLM_TIMEOUT_SECONDS", 60),
 		MaxRetry:       envIntDefault("LLM_MAX_RETRY", 3),
 	}
 
@@ -203,7 +206,10 @@ func Load() (*Config, error) {
 		Overlap:  envIntDefault("CHUNK_OVERLAP", 0),
 	}
 
-	c.Retrieval = Retrieval{TopK: envIntDefault("KBE_TOP_K", 20)}
+	c.Retrieval = Retrieval{
+		TopK:     envIntDefault("KBE_TOP_K", 20),
+		MinScore: float32(envFloat64Default("KBE_MIN_SCORE", 0.6)),
+	}
 
 	c.RateLimit = RateLimit{
 		TenantPerMin: envIntDefault("RL_TENANT_PER_MIN", 120),
@@ -230,6 +236,16 @@ func envStr(key, def string) string {
 func envIntDefault(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+// envFloat64Default 读取 float64 配置，解析失败回退默认值。
+func envFloat64Default(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
 			return n
 		}
 	}

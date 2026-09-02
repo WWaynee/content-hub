@@ -43,11 +43,13 @@ func NewRouter() *gin.Engine {
 		// 需求单
 		priv.GET("/workspaces/:workspace_id/requirement", handler.GetRequirement)
 		priv.PUT("/requirements/:id", handler.UpdateRequirement)
+		priv.GET("/requirements/:id/scope", handler.GetRequirementScope)
 		priv.PUT("/requirements/:id/scope", handler.SaveRequirementScope)
 
 		// 知识库
 		priv.GET("/kbase/dir", handler.ListKbaseDir)
 		priv.GET("/kbase/tree", handler.GetKbaseTree)
+		priv.GET("/kbase/all", handler.GetKbaseAll)
 		priv.POST("/kbase/dir", handler.CreateKbaseDir)
 		priv.PUT("/kbase/dir/:id", handler.RenameKbaseDir)
 		priv.DELETE("/kbase/dir/:id", handler.DeleteKbaseDir)

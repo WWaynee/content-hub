@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Input,
@@ -66,8 +66,9 @@ function fmtSize(s?: number): string {
 export default function Knowledge() {
   const { message, modal } = App.useApp()
   const [scope, setScope] = useState<'private' | 'public'>('private')
-  const [dirID, setDirID] = useState(0)
-  const [dirStack, setDirStack] = useState<{ id: number; name: string }[]>([])
+  // 当前位置：从根目录到当前目录的完整目录链（末项即当前所在目录）
+  const [path, setPath] = useState<{ id: number; name: string }[]>([{ id: 0, name: '根目录' }])
+  const dirID = path[path.length - 1].id
   const [treeDirs, setTreeDirs] = useState<KbaseDir[]>([])
   const [curDirs, setCurDirs] = useState<KbaseDir[]>([])
   const [files, setFiles] = useState<KbaseFile[]>([])
@@ -93,6 +94,12 @@ export default function Knowledge() {
   const [messages, setMessages] = useState<QAMessage[]>([])
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
+  // 是否处于「新建但尚未提问」的草稿新会话（此时不落库，首问才真正创建）
+  const [newPending, setNewPending] = useState(false)
+  // 草稿新会话的本地虚 ID（负数，不与真实会话 id 冲突）
+  const DRAFT_SESSION_ID = -1
+  // 对话区底部锚点：消息更新（含「思考中」占位）后自动滚动到底部
+  const msgEndRef = useRef<HTMLDivElement>(null)
 
   // 会话改名
   const [sessionRenameModal, setSessionRenameModal] = useState(false)
@@ -131,46 +138,51 @@ export default function Knowledge() {
     loadSessions()
   }, [loadSessions])
 
+  // 消息变化（用户提问 / 思考中占位 / 答案返回）时自动滚动到对话区底部
+  useEffect(() => {
+    msgEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages])
+
   const refreshBrowse = () => {
     loadTree()
     loadCurDir()
   }
 
   const goRoot = () => {
-    setDirID(0)
-    setDirStack([])
+    setPath([{ id: 0, name: '根目录' }])
     setAppliedFileQuery('')
+    setFileKeyword('')
   }
-  const enterDir = (id: number, name: string) => {
-    setDirStack((s) => [...s, { id: dirID, name }])
-    setDirID(id)
+  // 文件区/列表点「子目录」进入：追加到当前位置链
+  const enterDir = (d: KbaseDir) => {
+    setPath((p) => [...p, { id: d.id, name: d.name }])
     setAppliedFileQuery('')
+    setFileKeyword('')
   }
-  // 目录树点击：切换当前目录，并重建完整祖先路径（替换而非追加）
+  // 目录树点击：重置为「根到该目录」的完整链（替换而非追加）
   const selectDirByID = (id: number) => {
     const byId = new Map<number, KbaseDir>()
-    treeDirs.forEach((d) => byId.set(d.id, d))
+    treeDirs.forEach((x) => byId.set(x.id, x))
     const d = byId.get(id)
     if (!d) return
-    const path: { id: number; name: string }[] = []
+    const chain: { id: number; name: string }[] = [{ id: 0, name: '根目录' }]
+    const ancestors: KbaseDir[] = []
     let cur = byId.get(d.parent_id)
     while (cur) {
-      path.unshift({ id: cur.id, name: cur.name })
+      ancestors.unshift(cur)
       cur = byId.get(cur.parent_id)
     }
-    setDirStack(path)
-    setDirID(d.id)
+    ancestors.forEach((x) => chain.push({ id: x.id, name: x.name }))
+    chain.push({ id: d.id, name: d.name })
+    setPath(chain)
     setAppliedFileQuery('')
+    setFileKeyword('')
   }
+  // 面包屑点击第 index 层（0=根目录），当前位置跳到该层
   const goBreadcrumb = (index: number) => {
-    if (index < 0) {
-      goRoot()
-    } else {
-      const target = dirStack[index].id
-      setDirID(target)
-      setDirStack((s) => s.slice(0, index))
-      setAppliedFileQuery('')
-    }
+    setPath((p) => p.slice(0, index + 1))
+    setAppliedFileQuery('')
+    setFileKeyword('')
   }
 
   const applyFileSearch = () => {
@@ -274,30 +286,58 @@ export default function Knowledge() {
   }
 
   // 会话操作
-  const newSession = async () => {
-    const s = (await api.post('/qa/sessions')) as any
-    setCurSession(s.id)
+  const newSession = () => {
+    // 惰性创建：新建会话此时不落库，仅进入「草稿新会话」态；
+    // 用户至少提问一次后才会真正在服务端创建并保存，未提问的空会话不残留。
+    setCurSession(DRAFT_SESSION_ID)
+    setNewPending(true)
     setMessages([])
-    loadSessions()
+    setAsking(false)
   }
   const openSession = async (id: number) => {
+    // 切到某一已有会话：取消草稿新会话态（其从未落库，直接丢弃）
+    setNewPending(false)
     setCurSession(id)
+    setAsking(false)
     const msgs = (await api.get(`/qa/sessions/${id}/messages`)) as any
     setMessages(msgs || [])
   }
   const ask = async () => {
-    if (!question.trim() || !curSession) return
+    if (!question.trim() || !curSession || asking) return
+    const q = question.trim()
+
+    // 若当前是「草稿新会话」：先真正创建会话（拿到真实 id），再提问。
+    // 这保证只有用户至少提问一次的会话才会被保存。
+    let sessionID = curSession
+    if (newPending && curSession === DRAFT_SESSION_ID) {
+      try {
+        const s = (await api.post('/qa/sessions')) as any
+        sessionID = s.id
+        setCurSession(sessionID)
+        setNewPending(false)
+      } catch (e: any) {
+        message.error(e.message || '创建会话失败')
+        return // 会话未能创建，放弃本次提问
+      }
+    }
+
+    // 立即把用户问题和「思考中」占位移入对话区；不用发按钮 loading，便于看到完整时序
+    const thinkingId = -Date.now() // 占位消息使用负数 id，避免与真实消息 id 冲突
+    setMessages((m) => [
+      ...m,
+      { id: Date.now(), role: 'user', content: q },
+      { id: thinkingId, role: 'assistant', content: '思考中…', pending: true },
+    ])
+    setQuestion('')
     setAsking(true)
     try {
-      const r = (await api.post(`/qa/sessions/${curSession}/ask`, { question })) as any
-      setMessages((m) => [
-        ...m,
-        { id: Date.now(), role: 'user', content: question },
-        { id: Date.now() + 1, role: 'assistant', content: r.answer },
-      ])
-      setQuestion('')
+      const r = (await api.post(`/qa/sessions/${sessionID}/ask`, { question: q })) as any
+      // 答案返回：移除「思考中」占位，写入真实回答
+      setMessages((m) => m.filter((x) => x.id !== thinkingId).concat({ id: Date.now(), role: 'assistant', content: r.answer }))
       loadSessions()
     } catch (e: any) {
+      // 失败：移除占位，回填错误，并保留用户问题
+      setMessages((m) => m.map((x) => (x.id === thinkingId ? { ...x, content: `提问失败：${e.message || '请重试'}`, pending: false } : x)))
       message.error(e.message || '提问失败')
     } finally {
       setAsking(false)
@@ -333,21 +373,25 @@ export default function Knowledge() {
   }
 
   const treeNodes = useMemo(() => buildTree(treeDirs), [treeDirs])
+  // 会话列表：草稿新会话置顶显示（未提问不落库，仅前端存在）
+  const sessionsWithDraft = useMemo(() => {
+    if (!newPending) return sessions
+    return [{ id: DRAFT_SESSION_ID, title: '新会话', temp: true }, ...sessions] as QASession[]
+  }, [newPending, sessions, DRAFT_SESSION_ID])
   const breadcrumbItems = [
-    {
-      title: (
-        <span style={{ cursor: 'pointer' }} onClick={goRoot}>
-          当前位置：根目录
-        </span>
-      ),
-    },
-    ...dirStack.map((s, i) => ({
-      title: (
-        <span style={{ cursor: 'pointer' }} onClick={() => goBreadcrumb(i)}>
-          {s.name}
-        </span>
-      ),
-    })),
+    ...path.map((s, i) => {
+      const isLast = i === path.length - 1
+      return {
+        title: (
+          <span
+            style={{ cursor: 'pointer', fontWeight: isLast ? 600 : 'normal', color: isLast ? 'var(--accent)' : undefined }}
+            onClick={() => goBreadcrumb(i)}
+          >
+            {i === 0 ? `当前位置：根目录` : s.name}
+          </span>
+        ),
+      }
+    }),
   ]
 
   const scopeHint =
@@ -358,7 +402,7 @@ export default function Knowledge() {
   return (
     <div style={{ display: 'flex', gap: 16, height: '100%' }}>
       {/* 左：网盘浏览 */}
-      <div className="app-card" style={{ flex: 2, padding: 16, minHeight: 520, overflow: 'auto' }}>
+      <div className="app-card" style={{ flex: 2, padding: 16, height: 600, overflow: 'auto' }}>
         {/* 顶部：仅私有/公有切换 + 跟随主题说明 */}
         <div style={{ marginBottom: 4 }}>
           <Segmented
@@ -480,7 +524,7 @@ export default function Knowledge() {
                     >
                       <span style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <FolderOpenOutlined style={{ color: '#f6b33c', flexShrink: 0 }} />
-                        <Typography.Link onClick={() => enterDir(d.id, d.name)} style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Typography.Link onClick={() => enterDir(d)} style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {d.name}
                         </Typography.Link>
                       </span>
@@ -565,7 +609,7 @@ export default function Knowledge() {
       {/* 右：知识问答 + 会话侧边栏 */}
       <div
         className="app-card"
-        style={{ flex: 1, minWidth: 320, padding: 16, display: 'flex', flexDirection: 'column', minHeight: 520 }}
+        style={{ flex: 1, minWidth: 320, padding: 16, display: 'flex', flexDirection: 'column', height: 600 }}
       >
         <div className="page-header" style={{ marginBottom: 12 }}>
           <Typography.Title level={5} style={{ margin: 0 }}>
@@ -586,13 +630,13 @@ export default function Knowledge() {
             padding: 4,
           }}
         >
-          {sessions.length === 0 ? (
+          {sessionsWithDraft.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无会话" style={{ margin: '8px 0' }} />
           ) : (
-            sessions.map((s) => (
+            sessionsWithDraft.map((s) => (
               <div
                 key={s.id}
-                onClick={() => openSession(s.id)}
+                onClick={() => (s.temp ? setCurSession(DRAFT_SESSION_ID) : openSession(s.id))}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -603,12 +647,27 @@ export default function Knowledge() {
                   borderRadius: 6,
                 }}
               >
-                <Typography.Text ellipsis style={{ flex: 1 }}>
-                  {s.title || `会话 #${s.id}`}
-                </Typography.Text>
+                <Space size={4} style={{ flex: 1, minWidth: 0 }}>
+                  {s.temp && <Tag color="blue" style={{ marginInlineEnd: 0, flexShrink: 0 }}>新</Tag>}
+                  <Typography.Text ellipsis style={{ flex: 1 }}>
+                    {s.title || `会话 #${s.id}`}
+                  </Typography.Text>
+                </Space>
                 <Space size={2} onClick={(e) => e.stopPropagation()}>
-                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openSessionRename(s)} />
-                  <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteSession(s.id)} />
+                  {s.temp ? (
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => { setNewPending(false); setCurSession(null); setMessages([]) }}
+                    />
+                  ) : (
+                    <>
+                      <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openSessionRename(s)} />
+                      <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => doDeleteSession(s.id)} />
+                    </>
+                  )}
                 </Space>
               </div>
             ))
@@ -618,7 +677,7 @@ export default function Knowledge() {
         <div
           style={{
             flex: 1,
-            minHeight: 260,
+            minHeight: 0, // 配合 flex 列布局 + overflow，实现固定高度内部滚动
             overflow: 'auto',
             border: '1px solid var(--panel-border)',
             borderRadius: 8,
@@ -640,16 +699,21 @@ export default function Knowledge() {
                     background: m.role === 'user' ? 'rgba(79,110,245,0.14)' : 'var(--panel-bg)',
                     padding: '6px 10px',
                     borderRadius: 8,
-                    display: 'inline-block',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
                     maxWidth: '88%',
                     border: m.role === 'assistant' ? '1px solid var(--panel-border)' : 'none',
+                    color: m.pending ? 'var(--text-soft)' : undefined,
                   }}
                 >
+                  {m.pending && <Spin size="small" />}
                   {m.content}
                 </Typography.Text>
               </div>
             ))
           )}
+          <div ref={msgEndRef} />
         </div>
 
         <Space.Compact style={{ width: '100%' }}>
@@ -660,11 +724,10 @@ export default function Knowledge() {
             onPressEnter={ask}
             disabled={!curSession}
           />
-          <Button type="primary" loading={asking} onClick={ask} disabled={!curSession}>
+          <Button type="primary" onClick={ask} disabled={!curSession || asking}>
             发送
           </Button>
-        </Space.Compact>
-      </div>
+        </Space.Compact>      </div>
 
       {/* 新建目录弹窗 */}
       <Modal

@@ -70,6 +70,31 @@ func GetKbaseTree(c *gin.Context) {
 	response.Success(c, gin.H{"dirs": dirs})
 }
 
+// GetKbaseAll 返回某 scope 下的全部目录与文件（供"需求单引用范围勾选"一次性取数据）。
+func GetKbaseAll(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = storage.ScopePrivate
+	}
+	ownerUserID := userID
+	if scope == storage.ScopePublic {
+		ownerUserID = 0
+	}
+	dirs, err := storage.ListAllDirs(c.Request.Context(), tenantID, scope, ownerUserID)
+	if err != nil {
+		response.ServerError(c, "查询目录失败")
+		return
+	}
+	files, err := storage.ListAllFiles(c.Request.Context(), tenantID, scope, ownerUserID)
+	if err != nil {
+		response.ServerError(c, "查询文件失败")
+		return
+	}
+	response.Success(c, gin.H{"dirs": dirs, "files": files})
+}
+
 // CreateDirReq 建目录请求。
 type CreateDirReq struct {
 	Scope    string `json:"scope" binding:"required"`      // public/private

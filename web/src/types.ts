@@ -70,12 +70,16 @@ export interface QASession {
   title: string
   created_at: string
   updated_at: string
+  /** 仅前端用：是否为「未创建」的草稿新会话（尚未提问，未落库）。 */
+  temp?: boolean
 }
 
 export interface QAMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
+  /** 仅前端用：是否为"思考中"占位消息（回答尚未返回）。 */
+  pending?: boolean
 }
 
 export interface ArticleSentence {

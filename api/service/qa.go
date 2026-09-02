@@ -34,7 +34,7 @@ func AskQABot(ctx context.Context, tenantID, userID, sessionID uint64, question 
 	}
 
 	// 问答 agent（注入检索实现）
-	bot := qabot.New(llmclient.NewClient(), &kbaseRetriever{})
+	bot := qabot.New(llmclient.NewClient(), &kbaseRetriever{}, qabot.Config{MaxRounds: 4})
 	res, err := bot.Answer(ctx, tenantID, question)
 	if err != nil {
 		return nil, err
@@ -56,17 +56,27 @@ func AskQABot(ctx context.Context, tenantID, userID, sessionID uint64, question 
 	return am, nil
 }
 
-// kbaseRetriever 实现 qabot.Retriever，复用 SearchKbase（切片级检索）。
+// kbaseRetriever 实现 qabot.Retriever，复用 SearchKbase（切片级检索），并反查来源文档名。
 type kbaseRetriever struct{}
 
-func (k *kbaseRetriever) Retrieve(ctx context.Context, tenantID uint64, query string) ([]string, error) {
+func (k *kbaseRetriever) Retrieve(ctx context.Context, tenantID uint64, query string) ([]qabot.Hit, error) {
 	evs, err := SearchKbase(ctx, tenantID, query)
 	if err != nil {
 		return nil, err
 	}
-	texts := make([]string, 0, len(evs))
+	hits := make([]qabot.Hit, 0, len(evs))
 	for _, e := range evs {
-		texts = append(texts, e.SourceText)
+		name := ""
+		var f model.KbaseFile
+		// 反查来源文档名；用 Find 避免 GORM 对"记录不存在"打印错误日志，
+		// 找不到（可能命中已清理租户的残留向量）则 nameless 兜底。
+		storage.GetDB().WithContext(ctx).
+			Where("id = ? AND tenant_id = ?", e.FileID, tenantID).
+			Find(&f)
+		if f.Name != "" {
+			name = f.Name
+		}
+		hits = append(hits, qabot.Hit{Content: e.SourceText, FileName: name})
 	}
-	return texts, nil
+	return hits, nil
 }

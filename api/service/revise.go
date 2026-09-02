@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/WWaynee/content-hub/agent"
+	agentcensor "github.com/WWaynee/content-hub/agent/censor"
 	"github.com/WWaynee/content-hub/llmclient"
 	"github.com/WWaynee/content-hub/storage"
 	"github.com/WWaynee/content-hub/storage/model"
@@ -206,6 +207,11 @@ func ReviseSentenceFull(ctx context.Context, tenantID, workspaceID uint64, targe
 	}
 	newEvidence := hitsToEvidence(hits)
 
+	// 闸门三：修订内容若含数据断言但无证据支撑 → 拒绝写入
+	if ok, rerr := checkRevisionFactSupport(ctx, newText, newEvidence); !ok {
+		return 0, rerr
+	}
+
 	// 落本次修订的检索快照（惰性失效判定基准）
 	if _, berr := PersistRetrievalBatch(ctx, tenantID, workspaceID, req.ID, req.Version, []string{newText}, hits); berr != nil {
 		_ = berr
@@ -263,6 +269,43 @@ func hitsToEvidence(hits []KbaseHit) []agent.Evidence {
 	return out
 }
 
+// ErrRevisionNoSupport 修订/追加内容无法在知识库中找到支撑证据。
+type ErrRevisionNoSupport struct {
+	Reason string
+}
+
+func (e *ErrRevisionNoSupport) Error() string { return e.Reason }
+
+// checkRevisionFactSupport 对修订/追加的新文本做「事实断言 + 证据支撑」校验（闸门三）。
+// 规则（对齐能力边界）：
+//   - 新文本含数据/事实断言但无法在证据原文中找到直接支撑 → 返回 (false, ok)，调用方应拒绝写入。
+//   - 新文本不含数据断言（纯公文措辞）或断言都有证据支撑 → 返回 (true, ok) 放行。
+//   - 无法解析（LLM 校验失败）时按「无数据断言」放行，避免误伤纯措辞修订。
+func checkRevisionFactSupport(ctx context.Context, newText string, newEvidence []agent.Evidence) (bool, error) {
+	if newText == "" {
+		return true, nil
+	}
+	verifier := agentcensor.NewFactVerifier(llmclient.NewClient())
+	fc, err := verifier.Check(ctx, []string{newText}, newEvidence)
+	if err != nil {
+		// 校验 LLM 失败不阻断——按纯措辞放行，主流程优先
+		return true, nil
+	}
+	for _, s := range fc.Sentences {
+		if !s.HasDataAssertion {
+			continue
+		}
+		for _, a := range s.Assertions {
+			if !a.Supported {
+				return false, &ErrRevisionNoSupport{
+					Reason: fmt.Sprintf("本条修改含如下数据，但知识库中找不到支撑证据：%s", a.Text),
+				}
+			}
+		}
+	}
+	return true, nil
+}
+
 // AppendArticleContent 追加段落：LLM 生成追加内容 → 检索证据 → 追加到稿件末尾 → 落新快照。
 // 现有句子全部继承（文本+证据），追加的新句子带新检索到的证据。
 func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, instruction string) (uint64, error) {
@@ -308,6 +351,11 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 		return 0, err
 	}
 	newEvidence := hitsToEvidence(hits)
+
+	// 闸门三：追加内容若含数据断言但无证据支撑 → 拒绝写入
+	if ok, rerr := checkRevisionFactSupport(ctx, newText, newEvidence); !ok {
+		return 0, rerr
+	}
 
 	// 落本次追加的检索快照（惰性失效判定基准）
 	if _, berr := PersistRetrievalBatch(ctx, tenantID, workspaceID, req.ID, req.Version, []string{newText}, hits); berr != nil {

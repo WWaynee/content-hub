@@ -46,6 +46,20 @@ func ListFilesByDir(ctx context.Context, tenantID uint64, scope string, ownerUse
 	return list, nil
 }
 
+// ListAllFiles 列出某 scope 下的全部文件（仅 active=1，供"引用范围勾选"一次性取全量）。
+// 私有库按 ownerUserID 过滤；公有库 ownerUserID 传 0。
+func ListAllFiles(ctx context.Context, tenantID uint64, scope string, ownerUserID uint64) ([]model.KbaseFile, error) {
+	q := GetDB().WithContext(ctx).Where("tenant_id = ? AND scope = ? AND active = 1", tenantID, scope)
+	if scope == ScopePrivate {
+		q = q.Where("owner_user_id = ?", ownerUserID)
+	}
+	var list []model.KbaseFile
+	if err := q.Order("created_at ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // SearchFilesByName 按文件名模糊搜索（限租户 + scope + active）。
 func SearchFilesByName(ctx context.Context, tenantID uint64, scope string, ownerUserID uint64, keyword string) ([]model.KbaseFile, error) {
 	q := GetDB().WithContext(ctx).Where("tenant_id = ? AND scope = ? AND active = 1", tenantID, scope)

@@ -136,3 +136,24 @@ func SaveRequirementScope(c *gin.Context) {
 	_ = storage.BumpRequirementVersion(c.Request.Context(), rid)
 	response.SuccessMessage(c, "已保存", nil)
 }
+
+// GetRequirementScope 读取某需求单已勾选的引用范围（供前端回显）。
+func GetRequirementScope(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	rid, err := parseID(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "无效的需求单 ID")
+		return
+	}
+	req, err := storage.GetRequirementByID(c.Request.Context(), rid)
+	if err != nil || req.TenantID != tenantID {
+		response.BadRequest(c, "需求单不存在")
+		return
+	}
+	scopes, err := storage.ListRequirementScopes(c.Request.Context(), rid)
+	if err != nil {
+		response.ServerError(c, "查询范围失败")
+		return
+	}
+	response.Success(c, scopes)
+}

@@ -28,12 +28,17 @@ func SearchKbase(ctx context.Context, tenantID uint64, query string, fileIDs ...
 		return nil, fmt.Errorf("查询向量化失败: %w", err)
 	}
 	topK := config.Get().Retrieval.TopK
+	minScore := config.Get().Retrieval.MinScore
 	hits, err := storage.SearchVectors(ctx, vec, tenantID, topK, fileIDs...)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Evidence, 0, len(hits))
 	for _, h := range hits {
+		// 相似度阈值过滤：低于阈值的命中判为「不相关」，不作为证据（避免低相关噪声进入撰写/问答）
+		if minScore > 0 && h.Score < minScore {
+			continue
+		}
 		out = append(out, Evidence{
 			FileID:       h.FileID,
 			VersionMd5:   h.VersionMd5,
@@ -62,7 +67,12 @@ func SearchKbaseSentences(ctx context.Context, tenantID uint64, query string, fi
 
 	var out []KbaseHit
 	seen := map[uint64]bool{} // 去重 doc_sentence_id
+	minScore := config.Get().Retrieval.MinScore
 	for _, h := range hits {
+		// 相似度阈值过滤：低于阈值的命中判为「不相关」，不作为证据
+		if minScore > 0 && h.Score < minScore {
+			continue
+		}
 		// 反查 chunk
 		chunk, err := storage.GetChunkByVersionIndex(ctx, tenantID, h.FileID, h.VersionMd5, h.ChunkIndex)
 		if err != nil {

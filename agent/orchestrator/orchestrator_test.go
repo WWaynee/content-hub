@@ -59,7 +59,7 @@ func TestOrchestratorGenerate(t *testing.T) {
 
 	// 2. 组装 agent
 	llm := llmclient.NewClient()
-	o := New(retrieve.New(llm), writing.New(llm), evidence.New())
+	o := New(retrieve.New(llm), writing.New(llm), evidence.New(), nil)
 	req := agent.Requirement{
 		Title:              "2026 年招生简章发布",
 		StyleSubject:       "学校",

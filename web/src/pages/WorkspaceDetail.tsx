@@ -13,9 +13,10 @@ import {
   Typography,
   Divider,
 } from 'antd'
-import { SendOutlined } from '@ant-design/icons'
+import { SendOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import api from '../api'
 import type { Requirement, Article } from '../types'
+import RequirementScopeModal from './RequirementScopeModal'
 import { PLATFORMS } from '../types'
 
 export default function WorkspaceDetail() {
@@ -29,11 +30,23 @@ export default function WorkspaceDetail() {
   const [exported, setExported] = useState('')
   const [chat, setChat] = useState('')
   const [sending, setSending] = useState(false)
+  const [scopeVisible, setScopeVisible] = useState(false)
+  const [scopeCount, setScopeCount] = useState(0)
   const [form] = Form.useForm()
+
+  const refreshScopeCount = useCallback(async (rid: number) => {
+    try {
+      const list = (await api.get(`/requirements/${rid}/scope`)) as any
+      setScopeCount(Array.isArray(list) ? list.length : 0)
+    } catch (_) {
+      setScopeCount(0)
+    }
+  }, [])
 
   const loadReq = useCallback(async () => {
     const r = (await api.get(`/workspaces/${wid}/requirement`)) as any
     setReq(r)
+    if (r?.id) refreshScopeCount(r.id)
     form.setFieldsValue({
       title: r.title,
       tags: r.tags || [],
@@ -185,6 +198,18 @@ export default function WorkspaceDetail() {
           <Form.Item label="章节要求" name="chapter_requirement">
             <Input.TextArea rows={3} placeholder="如：包含报名条件和录取规则" />
           </Form.Item>
+          <Form.Item label="引用资料范围" tooltip="锁定稿件检索仅来自勾选的目录/文件；目录含其下所有文件与子目录。不勾选则检索全部可访问资料。">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <Typography.Text type="secondary">
+                {scopeCount > 0
+                  ? `已选择 ${scopeCount} 项引用资料`
+                  : '尚未选择，将引用全部可访问资料'}
+              </Typography.Text>
+              <Button icon={<FolderOpenOutlined />} disabled={!req} onClick={() => setScopeVisible(true)}>
+                {scopeCount > 0 ? '查看 / 修改范围' : '选择资料（推荐锁死范围）'}
+              </Button>
+            </div>
+          </Form.Item>
           <SpaceCombo
             onSave={saveReq}
             onGenerate={generate}
@@ -270,6 +295,16 @@ export default function WorkspaceDetail() {
           发送
         </Button>
       </div>
+
+      <RequirementScopeModal
+        open={scopeVisible && !!req}
+        requirementId={req?.id || 0}
+        onClose={() => setScopeVisible(false)}
+        onSaved={() => {
+          if (req?.id) refreshScopeCount(req.id)
+          loadReq()
+        }}
+      />
     </div>
   )
 }
