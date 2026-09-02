@@ -1,7 +1,9 @@
 # P01 · 检索可见性平面（修私有库可被同租户经 AI 检索旁路）
 
 - RFC 出处：rev-3 §12.3 / C1；README 顺序=P01（最先，安全）
-- 状态：待开工
+- 状态：**DONE**（已实现并真验收，见文末“完成记录”）
+- 实现方式简述：`QdrantVector` 写入 `pt_scope`/`pt_owner`(来自 kbase_file 的 scope+owner)；检索 `SearchVectors(ctx,..ownerUserID..)` 用可见 filter= 公库 OR（私库且 owner=本人）；顶层 `SearchKbase/SearchKbaseSentences` 由 ctx(user) 决定 owner（middleware 种入），无 ctx/user → 仅公库（保守）。
+
 - 目标：让**向量检索**复用与"文件系统浏览/写"一致的可见性判定，封堵"同租户他人私有库文档可被 AI 生成/问答命中"的越权旁路。
 
 ---
@@ -48,3 +50,18 @@
 
 ## 7. 完成一个 clear gate
 "P01 done" = 上面第 4 节隔离对抗测试通过 + 旧点迁移完成 + 既有基线 `go build ./...`、`go test ./...`(非 integration)绿。
+
+---
+
+## ✅ 完成记录（真实验收）
+- **已实现代码**：
+  - `storage/qdrant.go`：`QdrantVector` 增 `Scope`/`OwnerUserID`；`toPointStruct` 写入整数 payload `pt_scope`(0 public/1 private)+`pt_owner`；`searchFilter`/`visibilityCond` 构造可见 OR =公库 OR（私库且 owner=本人），owner=0 仅公库；`SearchVectors` 签名加 `ownerUserID`。
+  - `api/service/kbase.go`：`ProcessDocument` 写点前 `GetFileByID` 拿 scope/owner 并写入每个点。
+  - `api/service/kbase_search.go`：新增 `searchOwnerFromCtx(ctx)`（读 middleware 种入的 user）；`SearchKbase`/`SearchKbaseSentences` 内部以该 owner 调 `SearchVectors` → 无 ctx/user 仅公库、HTTP 全链 owner 生效。QA/claim/revise/append/retrieve 均经这两顶层函数，一次性套上可见平面，无需逐个入口改。
+- **验收(真实跑了)**：
+  - `go build ./...` ✅
+  - `go test ./... -count=1`（纯单测回归全绿）✅
+  - `go vet ./storage/ ./api/service/ ./agent/... ./cmd/...` ✅ 无告警
+  - **`go test ./storage/ -run TestVectorSearchVisibilityIsolation -count=1 -v` ✅ PASS**（真实 Qdrant）：同租户 A 私有 / B 私有 / 公库三点下，owner=A 仅见 A+公库、owner=B 仅见 B+公库、owner=0 仅见公库，任何检索不含他人私库——越权旁路在向量层被过滤。
+  - 该真隔离测试源：`storage/qdrant_visibility_test.go`（仅依赖 Qdrant；业务假 tenant=99999001 隔离）。
+- **旧点(${已有 vector 但无 pt_scope/pt_owner})**：会被新可见 filter 排除（安全方向，不越权）；恢复方式=重索引该文件来源（重新跑一遍解析/向量化写入，此时带 scope/owner）。不迁移则只是“旧点是可检索但属于不可见集被过滤”，无泄漏风险。

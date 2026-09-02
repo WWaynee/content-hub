@@ -30,6 +30,12 @@ func ProcessDocument(ctx context.Context, tenantID, fileID, versionID uint64) er
 		return ErrFileNotFound
 	}
 
+	// 取文件元数据得到可见性(scope/owner)，用于向量点写入可见平面（P01）
+	fileMeta, err := storage.GetFileByID(ctx, tenantID, fileID)
+	if err != nil {
+		return failVersion(ctx, versionID, fmt.Errorf("读取文件元数据失败: %w", err))
+	}
+
 	// 1. 标记 processing
 	if err := storage.UpdateVersionStatus(ctx, versionID, storage.FileStatusProcessing); err != nil {
 		return fmt.Errorf("更新版本为处理中失败: %w", err)
@@ -117,6 +123,8 @@ func ProcessDocument(ctx context.Context, tenantID, fileID, versionID uint64) er
 			ID:           ComposePointID(fileID, ver.VersionMd5, i),
 			TenantID:     tenantID,
 			FileID:       fileID,
+			Scope:        fileMeta.Scope,
+			OwnerUserID:  fileMeta.OwnerUserID,
 			VersionMd5:   ver.VersionMd5,
 			ChunkIndex:   i,
 			Content:      c.Content,

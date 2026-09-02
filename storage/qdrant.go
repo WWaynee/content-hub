@@ -61,6 +61,8 @@ type QdrantVector struct {
 	ID           uint64    // 点全局唯一 ID
 	TenantID     uint64    // 租户（隔离键）
 	FileID       uint64    // 文档 ID
+	Scope        string    // scope=public/private（可见性平面）
+	OwnerUserID  uint64    // owner_user_id：private 库为归属用户，public 库为 0
 	VersionMd5   string    // 版本
 	ChunkIndex   int       // 切片序号
 	Content      string    // 切片原文（检索直接返回）
@@ -75,6 +77,8 @@ func toPointStruct(v QdrantVector) (*qdrant.PointStruct, error) {
 		"tenant_id":   int64(v.TenantID),
 		"file_id":     int64(v.FileID),
 		"chunk_index": int64(v.ChunkIndex),
+		"pt_scope":    scopeCode(v.Scope),  // 0=public, 1=private，可见性过滤
+		"pt_owner":    int64(v.OwnerUserID), // private 归属用户；public 为 0
 	}
 	for k, val := range intVals {
 		pv, err := qdrant.NewValue(val)
@@ -107,6 +111,15 @@ func toPointStruct(v QdrantVector) (*qdrant.PointStruct, error) {
 		Vectors: qdrant.NewVectors(v.Vector...),
 		Payload: payload,
 	}, nil
+}
+
+// scopeCode 把 scope 字符串(public/private)映射为整数,便于向量库过滤。
+// 非 private 一律视为 public(0),与既有 ScopePublic 常量语义一致。
+func scopeCode(scope string) int64 {
+	if scope == ScopePrivate {
+		return 1
+	}
+	return 0
 }
 
 // UpsertVectors 批量写入。
@@ -142,8 +155,10 @@ type QdrantSearchHit struct {
 	Payload      map[string]interface{}
 }
 
-// searchFilter 构造过滤：强制 tenant_id + latest=true + 可选 file_id in。
-func searchFilter(tenantID uint64, fileIDs []uint64) *qdrant.Filter {
+// searchFilter 构造过滤：强制 tenant + latest；可见性平面：ownerUserID>0 时= 公库
+// OR 本人私有库(pt_scope=1 AND pt_owner=ownerUserID)，ownerUserID=0 时=仅公库（保守，
+// 无明确身份的情况下不许看任何私库）；可选 file_id in（must 内进一步限定）。
+func searchFilter(tenantID, ownerUserID uint64, fileIDs []uint64) *qdrant.Filter {
 	must := []*qdrant.Condition{
 		intFieldCond("tenant_id", int64(tenantID)),
 		boolFieldCond("latest", true),
@@ -151,7 +166,33 @@ func searchFilter(tenantID uint64, fileIDs []uint64) *qdrant.Filter {
 	if len(fileIDs) > 0 {
 		must = append(must, intsFieldCond("file_id", fileIDs))
 	}
+
+	// 可见平面 = 库里可见(scope=public) 或 scope=private 且 owner=ownerUserID
+	must = append(must, visibilityCond(ownerUserID))
 	return &qdrant.Filter{Must: must}
+}
+
+// visibilityCond 构造"该检索身份能看到的点"条件：
+//   - ownerUserID>0：pt_scope=0(公库) 与 (pt_scope=1 且 pt_owner=ownerUserID) 取 OR；
+//   - ownerUserID==0：仅 pt_scope=0(公库)——避免无明确身份检索他人私库。
+//
+// OR 在 Qdrant 中用一个"只含 Should 的子 filter"表示（纯 Should → 至少命中其一，
+// 即逻辑 OR），via NewFilterAsCondition 把它作为一个 must 项整体嵌入。
+func visibilityCond(ownerUserID uint64) *qdrant.Condition {
+	publicCond := intFieldCond("pt_scope", 0)
+	if ownerUserID == 0 {
+		return publicCond
+	}
+	// scope=private 且 owner=me（同样用嵌套 filter 表达 AND）
+	privateCond := qdrant.NewFilterAsCondition(&qdrant.Filter{
+		Must: []*qdrant.Condition{
+			intFieldCond("pt_scope", 1),
+			intFieldCond("pt_owner", int64(ownerUserID)),
+		},
+	})
+	return qdrant.NewFilterAsCondition(&qdrant.Filter{
+		Should: []*qdrant.Condition{publicCond, privateCond},
+	})
 }
 
 func intFieldCond(key string, val int64) *qdrant.Condition {
@@ -179,14 +220,15 @@ func intsFieldCond(key string, vals []uint64) *qdrant.Condition {
 	}}}
 }
 
-// SearchVectors 检索，强制 tenant + latest 过滤，可选 fileIDs 限定。
-func SearchVectors(ctx context.Context, query []float32, tenantID uint64, topK int, fileIDs ...uint64) ([]QdrantSearchHit, error) {
+// SearchVectors 检索：强制 tenant + latest，并按检索身份 ownerUserID 限定可见平面
+// （ownerUserID>0 时可见=公库 OR 本人私库；0=仅公库）；可选 fileIDs 进一步限定。
+func SearchVectors(ctx context.Context, query []float32, tenantID, ownerUserID uint64, topK int, fileIDs ...uint64) ([]QdrantSearchHit, error) {
 	limit := uint64(topK)
 	req := &qdrant.QueryPoints{
 		CollectionName: collectionName(),
 		Query:          qdrant.NewQueryNearest(qdrant.NewVectorInput(query...)),
 		Limit:          &limit,
-		Filter:         searchFilter(tenantID, fileIDs),
+		Filter:         searchFilter(tenantID, ownerUserID, fileIDs),
 		WithPayload:    qdrant.NewWithPayload(true),
 		WithVectors:    qdrant.NewWithVectors(false),
 	}
