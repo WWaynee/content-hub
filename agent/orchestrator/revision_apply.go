@@ -1,3 +1,6 @@
+// DEPRECATED(P07 / rev-3 C5)：ApplySentenceRevision 只是带"未动句继承"的纯函数对照实现；
+// 运行期修订统一由 api/service 的 run 链(ReviseSentenceFull→ApplyArticleRevision→P08 change_list)承担。
+// 本文件保留仅作局部单测参照,勿再由此引出第二套修订写库路径。
 package orchestrator
 
 import "github.com/WWaynee/content-hub/agent"

@@ -1,3 +1,7 @@
+// DEPRECATED(P07 / rev-3 C5)：这个 Reviser 是早期版本里"未接生产 handler 的双实现"之一。
+// 生产环境的句子修订/追加已收敛为唯一链：api/service（RunRevision / RunAppend → ReviseSentenceFull
+// / AppendArticleContent）+ P08 将引入的 change_list。本文件仅保留给既有的局部位单测做对照，
+// 不属于任何运行期调用图；请勿在此继续维护第二套修订逻辑，统一在 api/service/P08 上做增删改。
 package orchestrator
 
 import (

@@ -90,25 +90,16 @@ type GenerationResult struct {
 
 // Generate 执行「需求 → 检索 → 撰写 → 证据」完整 generation 工作流。
 func (o *Orchestrator) Generate(ctx context.Context, tenantID uint64, req agent.Requirement, fileIDs []uint64) (*GenerationResult, error) {
-	// 1. 检索
-	ret, err := o.retriever.Retrieve(ctx, agent.RetrieveRequest{
-		TenantID:    tenantID,
-		Requirement: req,
-		FileIDs:     fileIDs,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// 1.5 无证据保护 + 逐点缺证核对（能力边界：任一必需数据/事实点无证据 → 禁止生成）
-	finalEvidence := ret.Evidence
-	finalQueries := ret.Queries
+	// 全局检索只作为"未注入 claim 覆盖核对器(checker)"时的兜底资源；
+	// 一旦注入了 checker，就以 claim 逐点检索为准，避免 Generate 开头那一次对全需求重复首检(C6 冗余)。
+	var finalEvidence []agent.Evidence
+	var finalQueries []string
 	if o.checker != nil {
 		cov, cerr := o.checker.Check(ctx, tenantID, req, fileIDs)
 		if cerr != nil {
 			return nil, cerr
 		}
-		// 存在「需要事实支撑」但无证据的点 → 整篇阻断，返回缺证清单
+		// 存在「需要事实支撑」但无证据的点 → 整篇阻断，返回缺证清单(由上游转 await_human/缺证人话)
 		if len(cov.Missing) > 0 {
 			return nil, &ErrInsufficientEvidence{Missing: cov.Missing}
 		}
@@ -117,9 +108,22 @@ func (o *Orchestrator) Generate(ctx context.Context, tenantID uint64, req agent.
 		}
 		finalEvidence = cov.Evidence
 		finalQueries = cov.Queries
-	} else if len(ret.Evidence) == 0 {
-		// 旧逻辑兜底：未注入 checker 时，仅做整体无证据拦截
-		return nil, ErrNoEvidence
+	} else {
+		// 旧兼容：无 checker 时退化为"整体检索 + 有无证据"的简单闸(不逐点核对)。
+		if o.retriever == nil {
+			return nil, ErrNoEvidence
+		}
+		ret, rerr := o.retriever.Retrieve(ctx, agent.RetrieveRequest{
+			TenantID: tenantID, Requirement: req, FileIDs: fileIDs,
+		})
+		if rerr != nil {
+			return nil, rerr
+		}
+		finalEvidence = ret.Evidence
+		finalQueries = ret.Queries
+		if len(finalEvidence) == 0 {
+			return nil, ErrNoEvidence
+		}
 	}
 
 	// 2. 撰写

@@ -313,19 +313,19 @@ func checkRevisionFactSupport(ctx context.Context, newText string, newEvidence [
 	verifier := agentcensor.NewFactVerifier(llmclient.NewClient())
 	fc, err := verifier.Check(ctx, []string{newText}, newEvidence)
 	if err != nil {
-		// 校验 LLM 失败不阻断——按纯措辞放行，主流程优先
-		return true, nil
+		// P07：校验链路出错不能再"当无断言放行"——如实返回待复核，交由调用方(Guardian/P09)决定丢弃/降级。
+		return false, &ErrRevisionNoSupport{Reason: "本条修改的证据核实中断，未能确认其数据有可靠来源，需要复核后再提交"}
 	}
 	for _, s := range fc.Sentences {
 		if !s.HasDataAssertion {
 			continue
 		}
 		for _, a := range s.Assertions {
-			if !a.Supported {
-				return false, &ErrRevisionNoSupport{
-					Reason: fmt.Sprintf("本条修改含如下数据，但知识库中找不到支撑证据：%s", a.Text),
-				}
+			if a.Supported {
+				continue
 			}
+			// 规则或近义都无法给可引证据：不允许静默落在 bound。
+			return false, &ErrRevisionNoSupport{Reason: fmt.Sprintf("本条修改含以下数据，但知识库(规则/近义)都拿不出可引支撑：%s", a.Text)}
 		}
 	}
 	return true, nil
