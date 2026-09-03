@@ -101,3 +101,56 @@ func currentArticleVersion(ctx context.Context, tenantID, workspaceID uint64) in
 	}
 	return a.CurrentVersionNo
 }
+
+// RunSequenceEdit 完成一次受控序列编辑，并把其记录成 sequence run（P08）。
+// - 先创建 run(active 排他)、打 edit step；
+// - 调用 applySequenceVersion(CAS+事务) 产新版本；
+// - 成功则 finish(${version}) / 失败则 FailRun(reason)。
+// 返回 (newVersionID, 顺手带人话 reviews, err)。
+func RunSequenceEdit(ctx context.Context, tenantID, userID, workspaceID uint64, req *ChangeListRequest) (uint64, []string, error) {
+	baseVersion := currentArticleVersion(ctx, tenantID, workspaceID)
+	co := coordinator.New()
+	runRec, err := co.Start(ctx, coordinator.StartReq{
+		TenantID: tenantID, UserID: userID, WorkspaceID: workspaceID,
+		RunType: model.RunSequence, BaseVersion: baseVersion, CurrentRole: "writer", Plan: req,
+	})
+	if err != nil {
+		if errors.Is(err, storage.ErrRunActive) {
+			return 0, nil, ErrRunActive
+		}
+		return 0, nil, err
+	}
+	runID := runRec.ID
+	opSummary := make([]string, 0, len(req.Ops))
+	for _, op := range req.Ops {
+		opSummary = append(opSummary, op.Op)
+	}
+	_, _ = storage.AppendStep(ctx, runID, model.AgentStep{
+		Role: model.RoleWriter, Action: "apply_change_list",
+		Successor: model.RoleVerifier, Outcome: model.OutcomeAccepted,
+		Decision: fmt.Sprintf("对稿件执行手编序列编辑(%v)，基于稿件版本 %d", opSummary, baseVersion),
+	})
+
+	verID, reviews, aerr := applySequenceVersion(ctx, tenantID, workspaceID, req)
+	if aerr != nil {
+		_ = storage.FailRun(ctx, runID, aerr.Error())
+		return 0, reviews, aerr
+	}
+	if len(reviews) > 0 {
+		// 有 no_source 等待核项：作为一个"待复核" step 留在 run 里
+		_, _ = storage.AppendStep(ctx, runID, model.AgentStep{
+			Role: model.RoleMatchHuman, Action: "no_source_flag",
+			Outcome:  model.OutcomeAwaitHuman,
+			Decision: "本次序列编辑中有句子未获外部来源，正文已保留；是否补资料或放弃该句交由作者决定(P09)",
+		})
+	}
+	_, _ = storage.AppendStep(ctx, runID, model.AgentStep{
+		Role: model.RoleWriter, Action: "sequence_snapshot",
+		Outcome: model.OutcomeAccepted, RefID: verID,
+		Decision: fmt.Sprintf("按 change_list 落新版本 article_version=%d", verID),
+	})
+	if cerr := storage.FinishRunOk(ctx, runID, verID); cerr != nil {
+		return 0, reviews, cerr
+	}
+	return verID, reviews, nil
+}

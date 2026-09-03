@@ -13,6 +13,7 @@ const (
 	RunRevision    RunType = "revision"    // 改一句
 	RunAppend      RunType = "append"      // 追加一段
 	RunRegenerate  RunType = "regenerate"  // 全文重生成
+	RunSequence    RunType = "sequence"    // P08：一次 change_list(edit/insert/delete/move)为受控编辑落地为新版本
 )
 
 // RunStatus run 生命周期状态

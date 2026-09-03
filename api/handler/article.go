@@ -68,7 +68,7 @@ func GenerateArticle(c *gin.Context) {
 
 	finishOK := func(verID uint64) {
 		_, _ = storage.AppendStep(c.Request.Context(), runID, model.AgentStep{
-			Role: model.RoleEvidence, Action:   "persist_generation_snapshot",
+			Role: model.RoleEvidence, Action: "persist_generation_snapshot",
 			Outcome: model.OutcomeAccepted, Decision: "稿件生成完成并落为新版本", RefID: verID})
 		_ = storage.FinishRunOk(c.Request.Context(), runID, verID)
 		storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generated")
@@ -308,4 +308,49 @@ func jsonToStringSlice(j interface{}) []string {
 	var out []string
 	_ = json.Unmarshal(b, &out)
 	return out
+}
+
+// applySequenceRequest 一次 change_list 请求 body。
+type applySequenceBody struct {
+	BaseArticleVersion int                `json:"base_article_version,omitempty"`
+	Ops                []service.ChangeOp `json:"ops"`
+}
+
+// HandleArticleSequence PATCH /workspaces/:workspace_id/article/sequence —— 受控序列编辑(增/删/移/改一句的新句落版)
+// 走「RunSequence」持久 run + change_list(CAS) 语义,产出新 article_version。
+func HandleArticleSequence(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	wid, err := parseID(c.Param("workspace_id"))
+	if err != nil {
+		response.BadRequest(c, "无效工作区 ID")
+		return
+	}
+	var body applySequenceBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数解析失败："+err.Error())
+		return
+	}
+	req := &service.ChangeListRequest{BaseArticleVersion: body.BaseArticleVersion, Ops: body.Ops}
+	verID, reviews, rerr := service.RunSequenceEdit(c.Request.Context(), tenantID, userID, wid, req)
+	if rerr != nil {
+		if errors.Is(rerr, service.ErrArticleVersionConflict) || errors.Is(rerr, service.ErrSequenceConflict) {
+			response.Fail(c, response.CodeVersionConflict, service.ErrSequenceConflict.Error())
+			return
+		}
+		if errors.Is(rerr, service.ErrRunActive) {
+			response.Fail(c, response.CodeServerError, service.ErrRunActive.Error())
+			return
+		}
+		response.ServerError(c, "序列编辑失败："+rerr.Error())
+		return
+	}
+	response.Success(c, gin.H{"article_version_id": verID, "reviews": reviews, "human_text": buildSeqHuman(reviews, verID)})
+}
+
+func buildSeqHuman(reviews []string, _ uint64) string {
+	if len(reviews) == 0 {
+		return "已完成本次调整，并生成了新版本稿件。"
+	}
+	return "已完成本次调整（生成新版本）。注意：\n" + "- " + strings.Join(reviews, "\n- ")
 }

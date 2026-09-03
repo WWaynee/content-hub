@@ -63,6 +63,7 @@ func NewRouter() *gin.Engine {
 		// 稿件
 		priv.POST("/workspaces/:workspace_id/generate", handler.GenerateArticle)
 		priv.GET("/workspaces/:workspace_id/article", handler.GetArticle)
+		priv.PATCH("/workspaces/:workspace_id/article/sequence", handler.HandleArticleSequence)
 		priv.GET("/articles/:article_version_id/export", handler.ExportArticle)
 		priv.POST("/workspaces/:workspace_id/chat", handler.WorkspaceChat)
 
