@@ -37,6 +37,8 @@ func main() {
 		&model.RetrievalBatch{}, &model.RetrievalBatchItem{},
 		// 知识库问答（阶段7）
 		&model.QASession{}, &model.QAMessage{},
+		// agent run/step（P05 一等持久实体）
+		&model.AgentRun{}, &model.AgentStep{},
 		// 支撑
 		&model.AgentTask{}, &model.AuditLog{},
 	}

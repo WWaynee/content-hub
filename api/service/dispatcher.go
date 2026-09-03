@@ -93,15 +93,15 @@ func (d *Dispatcher) execAction(ctx context.Context, tenantID, userID, workspace
 		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("补检索命中 %d 条，已记录检索快照", len(hits))}
 
 	case "revise_article_sentence":
-		// 完整句子级修订：LLM 重写目标句 + 被改句重检测证据 + 落新快照
-		if _, err := ReviseSentenceFull(ctx, tenantID, workspaceID, ac.TargetSentenceIndex, ac.Instruction); err != nil {
+		// 完整句子级修订并记录为 revision run：LLM 重写目标句 + 重检测 + 落新快照
+		if _, _, err := RunRevision(ctx, tenantID, userID, workspaceID, ac.TargetSentenceIndex, ac.Instruction); err != nil {
 			return ActionResult{Tool: ac.Tool, Success: false, Message: err.Error()}
 		}
 		return ActionResult{Tool: ac.Tool, Success: true, Message: fmt.Sprintf("已修订第 %d 句", ac.TargetSentenceIndex)}
 
 	case "append_article_content":
-		// 追加段落：LLM 生成追加内容 + 检索证据 + 落新快照
-		if _, err := AppendArticleContent(ctx, tenantID, workspaceID, ac.Instruction); err != nil {
+		// 追加段落并记录为 append run
+		if _, _, err := RunAppend(ctx, tenantID, userID, workspaceID, ac.Instruction); err != nil {
 			return ActionResult{Tool: ac.Tool, Success: false, Message: err.Error()}
 		}
 		return ActionResult{Tool: ac.Tool, Success: true, Message: "已追加段落"}

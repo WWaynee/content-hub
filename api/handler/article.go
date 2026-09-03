@@ -56,6 +56,27 @@ func GenerateArticle(c *gin.Context) {
 		return
 	}
 
+	// P05：把本次 production 固化为一个 agent_run(initial) —— 校验"同工作区已在进行中(或等待人工)的生产"
+	run, runErr := beginInitialRun(c.Request.Context(), tenantID, userID, wid)
+	if runErr != nil {
+		restoreWorkspaceStatus(c, wid, prevStatus)
+		response.Fail(c, response.CodeServerError,
+			"创建生成任务失败（可能该工作区已有生成/修订在进行中）："+runErr.Error())
+		return
+	}
+	runID := run.ID
+
+	finishOK := func(verID uint64) {
+		_, _ = storage.AppendStep(c.Request.Context(), runID, model.AgentStep{
+			Role: model.RoleEvidence, Action:   "persist_generation_snapshot",
+			Outcome: model.OutcomeAccepted, Decision: "稿件生成完成并落为新版本", RefID: verID})
+		_ = storage.FinishRunOk(c.Request.Context(), runID, verID)
+		storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generated")
+	}
+	failRun := func(reason string) {
+		_ = storage.FailRun(c.Request.Context(), runID, reason)
+	}
+
 	llm := llmclient.NewClient()
 	checker := agentcensor.NewClaimPlanner(llm, service.NewKbaseSearcher())
 	o := orchestrator.New(retrieve.New(llm), writing.New(llm), evidence.New(), checker).
@@ -63,6 +84,7 @@ func GenerateArticle(c *gin.Context) {
 	res, err := o.Generate(c.Request.Context(), tenantID, agentReq, fileIDs)
 	if err != nil {
 		restoreWorkspaceStatus(c, wid, prevStatus)
+		failRun(err.Error())
 		var insuff *orchestrator.ErrInsufficientEvidence
 		var factUnsup *orchestrator.ErrFactUnsupported
 		switch {
@@ -91,6 +113,7 @@ func GenerateArticle(c *gin.Context) {
 	verID, err := service.PersistArticleSnapshot(c.Request.Context(), tenantID, wid, res.Article, res.Evidence)
 	if err != nil {
 		restoreWorkspaceStatus(c, wid, prevStatus)
+		failRun(err.Error())
 		if errors.Is(err, service.ErrArticleVersionConflict) {
 			response.Fail(c, response.CodeVersionConflict, service.ErrArticleVersionConflict.Error())
 			return
@@ -98,9 +121,9 @@ func GenerateArticle(c *gin.Context) {
 		response.ServerError(c, "稿件落库失败："+err.Error())
 		return
 	}
-	storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generated")
+	finishOK(verID)
 
-	response.Success(c, gin.H{"article_version_id": verID})
+	response.Success(c, gin.H{"article_version_id": verID, "run_id": runID})
 }
 
 // restoreWorkspaceStatus 生成失败时回退工作区状态（保持可操作，不卡死在 generating）。
