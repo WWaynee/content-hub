@@ -154,6 +154,12 @@ func GetArticle(c *gin.Context) {
 	sents, _ := storage.ListArticleSentences(c.Request.Context(), ver.ID)
 	binds, _ := storage.ListArticleBindings(c.Request.Context(), ver.ID)
 
+	// P04：装配"人读 source"并生成 sentence_views（RFC rev-2 §10.1 / rev-4 W6）
+	// 每条证据带原句引文/文档名/章节/版本/has_newer(资料有新版)/file_deleted(文档已删)，
+	// 让 tooltip 与"可溯源"不再只是裸 doc_sentence_id。旧字段(bindings/sentences)保留以兼容现前端。
+	sourceBySent := service.LoadSentenceSources(c.Request.Context(), tenantID, binds)
+	sentenceViews := service.BuildSentenceViews(sents, sourceBySent)
+
 	response.Success(c, gin.H{
 		"article_id":         a.ID,
 		"article_version_id": ver.ID,
@@ -161,6 +167,7 @@ func GetArticle(c *gin.Context) {
 		"full_content":       ver.FullContent,
 		"sentences":          sents,
 		"sections":           groupSentencesByStructure(sents), // rev2-P11/rev4-W1: 结构化层级(旧版线性退化见实现)
+		"sentence_views":     sentenceViews,                    // rev2-P04: 逐句人读 source(claim_type + sources)
 		"bindings":           binds,
 	})
 }

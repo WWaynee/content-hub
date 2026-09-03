@@ -95,6 +95,30 @@ export interface EvidenceBinding {
   doc_sentence_id: number
 }
 
+/** P04 证据"人读 source"：EvidenceBinding 展开后的可读引用来源（RFC rev-2 §8.2-Q2 / rev-4 W6）。 */
+export interface EvidenceSource {
+  doc_sentence_id: number
+  source_text: string
+  file_id: number
+  file_name: string
+  scope?: string
+  chapter_title?: string
+  version_md5: string
+  /** 引用之后资料又更新过新版本（当前文件 current_version_md5 ≠ 引用版本）。 */
+  has_newer: boolean
+  /** 来源文档当前已被删除（active=0），此处为引用时保留的原文快照。 */
+  file_deleted: boolean
+}
+
+/** P04 稿件某一句的人读视图（RFC rev-2 §10.1）：claim_type + 可读 sources。 */
+export interface SentenceView {
+  sentence_id: number
+  text: string
+  /** bound：有据可溯源；plausible-ai：纯 AI 通稿，无外部引用。 */
+  claim_type: 'bound' | 'plausible-ai' | string
+  sources: EvidenceSource[]
+}
+
 export interface Article {
   article_id: number
   article_version_id: number
@@ -102,6 +126,7 @@ export interface Article {
   full_content: string
   sentences: ArticleSentence[]
   bindings: EvidenceBinding[]
+  sentence_views?: SentenceView[]
 }
 
 export const PLATFORMS = ['微信公众号', '小红书', '单位网站', '微博']

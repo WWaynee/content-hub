@@ -76,6 +76,20 @@ func SearchFilesByName(ctx context.Context, tenantID uint64, scope string, owner
 	return list, nil
 }
 
+// ListFilesByIDs 批量按 ID 查文档元数据（限租户；不按 active 过滤）。
+// 用途：证据 source 装配需要"绑定指向的文件即使已被删除(active=0)也能还原文件名，
+// 并据 active/current_version_md5 计算 file_deleted 与 has_newer"——见 api/service/sources.go。
+func ListFilesByIDs(ctx context.Context, tenantID uint64, ids []uint64) ([]model.KbaseFile, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []model.KbaseFile
+	if err := GetDB().WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // CreateVersion 创建文档版本记录。用于上传新文件（versionNo=1）或覆盖（versionNo 递增）。
 func CreateVersion(ctx context.Context, v *model.DocVersion) error {
 	return GetDB().WithContext(ctx).Create(v).Error

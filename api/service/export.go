@@ -27,17 +27,18 @@ func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error)
 		}
 	}
 
-	// 1. 该版本的句子（按 sentence_index 排序）
+	// 1. 该版本的句子（按版本内插入序 = 正文自然序列）
 	var sents []model.ArticleSentence
 	storage.GetDB().WithContext(ctx).Where("article_version_id = ?", articleVersionID).
-		Order("sentence_index ASC").Find(&sents)
+		Order("id ASC").Find(&sents)
 
 	// 2. 证据绑定（按 sentence + order_no）
 	var binds []model.EvidenceBinding
 	storage.GetDB().WithContext(ctx).Where("article_version_id = ?", articleVersionID).
 		Order("article_sentence_id ASC, order_no ASC").Find(&binds)
 
-	// 3. 组装证据清单（回溯 doc_sentence 原文）
+	// 3. 组装 md：正文在前，证据清单在后（P04：每句的每条来源带可复制原句引文/文件名/章节/版本，
+	//   且顺带给出 has_newer(资料有新版)/file_deleted(资料已删) 的可读提示——兑现卖点，不再是空壳 id）
 	var sb strings.Builder
 	sb.WriteString(ver.FullContent)
 	sb.WriteString("\n\n---\n\n# 证据清单\n\n")
@@ -49,20 +50,27 @@ func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error)
 	}
 
 	hasEvidence := false
+	// 复用装配层把 bindings 一次读成人读 source（避免导出处逐个 SQL）
+	sourceBySent := LoadSentenceSources(ctx, ver.TenantID, binds)
 	for _, s := range sents {
 		bs := bindMap[s.ID]
 		if len(bs) == 0 {
-			continue
+			continue // 无绑定句不进证据清单
+		}
+		srcs := sourceBySent[s.ID]
+		if len(srcs) == 0 {
+			continue // 孤儿绑定(引用文档被物理清理)在清单中如实略过，不强编
 		}
 		hasEvidence = true
 		sb.WriteString(fmt.Sprintf("【句子】%s\n", s.Content))
-		for _, b := range bs {
-			docSentence, err := storage.GetSentenceByID(ctx, b.DocSentenceID)
-			if err != nil {
-				continue
+		for _, src := range srcs {
+			sb.WriteString(fmt.Sprintf("  - 来源文档：%s\n", docSourceLabel(src)))
+			sb.WriteString(fmt.Sprintf("    原文：%s\n", src.SourceText))
+			if src.FileDeleted {
+				sb.WriteString("    （该资料当前已被删除，以上为引用时的保留原文）\n")
+			} else if src.HasNewer {
+				sb.WriteString("    （该资料之后又有新版本，以上为引用时的旧版原文）\n")
 			}
-			sb.WriteString(fmt.Sprintf("  - 来源：文档 %d（版本 %s）\n", b.DocFileID, docSentence.VersionMd5))
-			sb.WriteString(fmt.Sprintf("    原文：%s\n", docSentence.Content))
 		}
 		sb.WriteString("\n")
 	}
@@ -70,4 +78,21 @@ func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error)
 		sb.WriteString("（无证据）\n")
 	}
 	return sb.String(), nil
+}
+
+// docSourceLabel 生成导出/清单中"来源文档"一行人读标注：文件名（或文档 id 兜底）+ 章节 + 原文版本号。
+func docSourceLabel(src SourceView) string {
+	label := ""
+	if src.FileName != "" {
+		label = src.FileName
+	} else if src.FileID != 0 {
+		label = fmt.Sprintf("文档 %d", src.FileID)
+	} else {
+		label = "未知文档"
+	}
+	if src.ChapterTitle != "" {
+		label += " · " + src.ChapterTitle
+	}
+	label += "（原文版本 " + src.VersionMd5 + "）"
+	return label
 }

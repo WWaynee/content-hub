@@ -68,6 +68,30 @@ func GetSentenceByID(ctx context.Context, sentenceID uint64) (*model.DocSentence
 	return &s, nil
 }
 
+// ListDocSentencesByIDs 批量按 ID 查文档句（限租户；供证据 source 装配一次取齐原文，避免 N+1）。
+func ListDocSentencesByIDs(ctx context.Context, tenantID uint64, ids []uint64) ([]model.DocSentence, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []model.DocSentence
+	if err := GetDB().WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// ListDocChunksByIDs 批量按 ID 查切片（限租户；供证据 source 取章节标题，避免 N+1）。
+func ListDocChunksByIDs(ctx context.Context, tenantID uint64, ids []uint64) ([]model.DocChunk, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []model.DocChunk
+	if err := GetDB().WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // DeleteChunksAndSentencesByVersion 删除某 file+version 的切片与句子（幂等清理，防失败重跑撞唯一索引）。
 func DeleteChunksAndSentencesByVersion(ctx context.Context, tenantID, fileID uint64, versionMd5 string) error {
 	if err := GetDB().WithContext(ctx).
