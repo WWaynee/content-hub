@@ -8,7 +8,6 @@ import {
   Button,
   App,
   Descriptions,
-  Tag,
   Card,
   Typography,
   Divider,
@@ -17,6 +16,7 @@ import { SendOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import api from '../api'
 import type { Requirement, Article } from '../types'
 import RequirementScopeModal from './RequirementScopeModal'
+import ArticleSentencesBoard from './ArticleSentencesBoard'
 import { PLATFORMS } from '../types'
 
 export default function WorkspaceDetail() {
@@ -240,20 +240,12 @@ export default function WorkspaceDetail() {
           )}
           <Divider titlePlacement="left">正文</Divider>
           <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{article.full_content}</Typography.Paragraph>
-          <Divider titlePlacement="left">句子（含证据）</Divider>
-          {article.sentences.map((s) => {
-            const bindings = article.bindings.filter((b) => b.article_sentence_id === s.id)
-            return (
-              <div key={s.id} style={{ marginBottom: 8 }}>
-                <Typography.Text>{s.content}</Typography.Text>
-                {bindings.length > 0 && (
-                  <Tag color="blue" style={{ marginLeft: 8 }}>
-                    证据 x{bindings.length}
-                  </Tag>
-                )}
-              </div>
-            )
-          })}
+          <Divider titlePlacement="left">句子 · 受控编辑 / 可溯源</Divider>
+          <ArticleSentencesBoard
+            wid={wid}
+            article={article}
+            onCommitted={loadArticle}
+          />
         </div>
       ) : (
         <Typography.Text type="secondary">

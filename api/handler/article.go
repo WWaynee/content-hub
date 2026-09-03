@@ -188,7 +188,9 @@ func GetArticle(c *gin.Context) {
 	// 每条证据带原句引文/文档名/章节/版本/has_newer(资料有新版)/file_deleted(文档已删)，
 	// 让 tooltip 与"可溯源"不再只是裸 doc_sentence_id。旧字段(bindings/sentences)保留以兼容现前端。
 	sourceBySent := service.LoadSentenceSources(c.Request.Context(), tenantID, binds)
-	sentenceViews := service.BuildSentenceViews(sents, sourceBySent)
+	// P09：把某句被落成"无源待核(no_source) / 人工认可保留(human_kept)"的占位标记给装配层而不是仅按有无 sources 判定。
+	statusBySent := service.ClaimStatusBySent(binds)
+	sentenceViews := service.BuildSentenceViews(sents, sourceBySent, statusBySent)
 
 	response.Success(c, gin.H{
 		"article_id":         a.ID,
@@ -353,4 +355,42 @@ func buildSeqHuman(reviews []string, _ uint64) string {
 		return "已完成本次调整，并生成了新版本稿件。"
 	}
 	return "已完成本次调整（生成新版本）。注意：\n" + "- " + strings.Join(reviews, "\n- ")
+}
+
+// markSentenceBody PATCH /workspaces/:wid/article/mark —— 对一句"no_source 黄点"做作者人工取舍。
+type markSentenceBody struct {
+	SentenceID uint64 `json:"sentence_id"`
+	Action     string `json:"action"` // ack_human | keep_no_source | reset_no_source
+}
+
+// HandleArticleSentenceMark 把某句在无源待核与"作者人工认可保留(无黄点)"之间做状态切换。
+func HandleArticleSentenceMark(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	wid, err := parseID(c.Param("workspace_id"))
+	if err != nil {
+		response.BadRequest(c, "无效工作区 ID")
+		return
+	}
+	var body markSentenceBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数解析失败："+err.Error())
+		return
+	}
+	if body.SentenceID == 0 || body.Action == "" {
+		response.BadRequest(c, "缺少 sentence_id / action")
+		return
+	}
+	if err := service.MarkSentenceManual(c.Request.Context(), tenantID, wid, body.SentenceID, body.Action); err != nil {
+		if errors.Is(err, service.ErrMarkHasRealSrc) {
+			response.BadRequest(c, "该句已有真实引用来源，不接受直接降为无外部依据；请先编辑去掉来源再标注。")
+			return
+		}
+		if errors.Is(err, service.ErrMarkNotExist) {
+			response.BadRequest(c, "该句在当前稿件版本中不存在（可能已被删除）。")
+			return
+		}
+		response.ServerError(c, "设置句子状态失败："+err.Error())
+		return
+	}
+	response.SuccessMessage(c, "已更新该句的源标注", nil)
 }

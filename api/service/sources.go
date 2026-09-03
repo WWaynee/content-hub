@@ -37,7 +37,11 @@ type SourceView struct {
 const (
 	ClaimTypeBound       = "bound"        // 有外部引用，可溯源
 	ClaimTypePlausibleAI = "plausible-ai" // 纯 AI 通稿语，无外部引用
-	// no_source（疑似该有据却无源、需人工复核标黄）由 P09 治理层填充，P04 不产生
+	// P09 无源两态：no_source = 该句应是可核的却拿不出外部依据(黄,待人工取舍)；
+	// human_kept = 作者人工认可"这段是我自己的内容/无外部来源"，解除黄点但仍可区分于 did。
+	ClaimTypeNoSource  = "no_source"
+	ClaimTypeHumanKept = "human_kept"
+	// MarkerEvidenceStatus = "no_source" 与 human_kept 由 P09 落成一个 doc 0 的占位 binding，见 sequence persist。
 )
 
 // LoadSentenceSources 把一个版本的 bindings 装配成人读 source。
@@ -127,11 +131,33 @@ func LoadSentenceSources(ctx context.Context, tenantID uint64, bindings []model.
 	return out
 }
 
+// ClaimStatusBySent 从绑定集提取"该句是否被 P09 标成无源"的占位语义（按句返回状态）。
+// 仅收集 evidence_status∈{no_source, human_kept} 的占位行（doc=0，无真引用）；同句出现多行取首个。
+func ClaimStatusBySent(binds []model.EvidenceBinding) map[uint64]string {
+	out := make(map[uint64]string)
+	for _, b := range binds {
+		if b.ArticleSentenceID == 0 {
+			continue
+		}
+		switch b.EvidenceStatus {
+		case ClaimTypeNoSource, ClaimTypeHumanKept:
+			if _, done := out[b.ArticleSentenceID]; !done {
+				out[b.ArticleSentenceID] = b.EvidenceStatus
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // SentenceView 是逐句的人读视图（RFC rev-2 §10.1）：
-//   - 有 sources  → claim_type=bound（有据可溯源）
-//   - 无 sources  → claim_type=plausible-ai（纯 AI 通稿语，sources 为空）
-// 是否"疑似该有据却无"的 no_source/需人工态无法仅凭 binding 存在与否推断，
-// 交由 P09 治理层填充——P04 先给基础两态占位，与 RFC「sources=[] + claim_type」对齐。
+//   - bound：有可溯源 sources；plausible-ai：纯 AI 通稿语（sources 空、也无强制要求核）；
+//   - no_source：本句疑似该有据却拿不出外部引用，作者需取舍(黄点)；human_kept：作者人工认可无外部依据(不黄但仍区别于 bound)。
+//
+// P04/P09：bound/plausible 以是否有 sources 判断；no_source/human_kept 由 P09 落库的占位
+// （evidence_status ∈ {no_source, human_kept},doc=0）经 ClaimStatusBySent 额外注入，不再混进 plausible。
 type SentenceView struct {
 	ArticleSentenceID uint64       `json:"sentence_id"`
 	Text              string       `json:"text"`
@@ -140,13 +166,17 @@ type SentenceView struct {
 }
 
 // BuildSentenceViews 把某版本句子 + 对应 sources 组装成结构化的 sentence_views 列表
-// （顺序沿用调用方传入的句子顺序，通常是 ListArticleSentences 的结构化升序）。无 binding 句给 plausible-ai。
-func BuildSentenceViews(sents []model.ArticleSentence, sourceBySent map[uint64][]SourceView) []SentenceView {
+// （顺序沿用调用方传入的句子顺序，通常是 ListArticleSentences 的结构化升序）。
+// claim_type 由"不可被外部资源覆盖的状态标记(statusBySent：P09 落的 no_source/human_kept 占位) > 有真源(bound) > 无源(plausible-ai)"决定，
+// P09 之后"某句该核却拿不出据"与"纯通稿衔接"是两种可见态，不再混成一个 plausible。
+func BuildSentenceViews(sents []model.ArticleSentence, sourceBySent map[uint64][]SourceView, statusBySent map[uint64]string) []SentenceView {
 	views := make([]SentenceView, 0, len(sents))
 	for _, s := range sents {
 		srcs := sourceBySent[s.ID]
 		ct := ClaimTypePlausibleAI
-		if len(srcs) > 0 {
+		if mk, ok := statusBySent[s.ID]; ok && mk != "" {
+			ct = mk // no_source/human_kept：P09 落库显式标记优先（这类本身不应有真 doc 源）
+		} else if len(srcs) > 0 {
 			ct = ClaimTypeBound
 		}
 		views = append(views, SentenceView{

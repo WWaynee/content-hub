@@ -106,7 +106,7 @@ func TestEvidenceSourcesAssembly(t *testing.T) {
 
 	// --- 1. 装配 sources ---
 	sourceBySent := LoadSentenceSources(ctx, tenantID, binds)
-	views := BuildSentenceViews(sents, sourceBySent)
+	views := BuildSentenceViews(sents, sourceBySent, ClaimStatusBySent(binds))
 	if len(views) != 3 {
 		t.Fatalf("应有 3 sentence_views，实得 %d", len(views))
 	}

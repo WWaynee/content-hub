@@ -92,25 +92,64 @@ func TestSequenceEdit_EndToEndWithCAS(t *testing.T) {
 			break
 		}
 	}
-	// A 与其证据 5001 一并消失；应仅剩 B 的 5002 一条
+	// A 与其证据 5001 一并消失；真源只剩 B 的 5002；同时 insert 无源句会落一条 no_source 占位(P09)。
 	bindsNew, _ := storage.ListArticleBindings(ctx, cur.ID)
-	if len(bindsNew) != 1 {
-		t.Fatalf("应仅剩 1 条绑定(B 的 5002, 被 edit 保留), got %d 条", len(bindsNew))
+	realCount, nsCount := 0, 0
+	for _, b := range bindsNew {
+		if b.DocSentenceID != 0 {
+			if b.DocSentenceID == 5002 {
+				realCount++
+			}
+		} else if b.EvidenceStatus == "no_source" && b.SourceType == "knowledge" {
+			nsCount++
+		}
 	}
-	if bindsNew[0].DocSentenceID != 5002 {
-		t.Errorf("存活绑定应为 5002(B), got %d（5001/被删句不应残留）", bindsNew[0].DocSentenceID)
+	if realCount != 1 {
+		t.Fatalf("真源应仅剩 B 的 5002 一条(被 edit 保留), real=%d", realCount)
+	}
+	if nsCount != 1 {
+		t.Fatalf("insert 无源句应正好落 1 条 no_source 占位(黄点), got %d", nsCount)
 	}
 	// B 的证据挂在【edit 后的】句上
-	guid := "_none_"
+	b5002On := ""
 	for _, b := range bindsNew {
-		for _, s := range after {
-			if s.ID == b.ArticleSentenceID {
-				guid = s.Content
+		if b.DocSentenceID == 5002 {
+			for _, s := range after {
+				if s.ID == b.ArticleSentenceID {
+					b5002On = s.Content
+				}
 			}
 		}
 	}
-	if guid != "句B已被改" {
-		t.Errorf("B 的证据未随 edit 后的句保留(target=%q)", guid)
+	if b5002On != "句B已被改" {
+		t.Errorf("B 的证据未随 edit 后的句保留(target=%q)", b5002On)
+	}
+
+	// P09：找到"无来源插入句"并做一次人工取舍往返(no_source → ack_human 解除黄点 → reset 退回待核)。
+	newRowID := uint64(0)
+	for _, s := range after {
+		if s.Content == "新插句没文档支撑" {
+			newRowID = s.ID
+		}
+	}
+	if newRowID == 0 {
+		t.Fatal("未定位到插入句 id")
+	}
+	if err := MarkSentenceManual(ctx, tenantID, w.ID, newRowID, "ack_human"); err != nil {
+		t.Fatalf("ack_human 失败: %v", err)
+	}
+	bindsAfter, _ := storage.ListArticleBindings(ctx, cur.ID)
+	humanOn := false
+	for _, b := range bindsAfter {
+		if b.ArticleSentenceID == newRowID && b.EvidenceStatus == "human_kept" {
+			humanOn = true
+		}
+	}
+	if !humanOn {
+		t.Errorf("ack_human 后应把该句占位从 no_source 置为 human_kept")
+	}
+	if err := MarkSentenceManual(ctx, tenantID, w.ID, newRowID, "reset_no_source"); err != nil {
+		t.Fatalf("reset 回待核失败: %v", err)
 	}
 	// insert 无来源 → no_source 提醒且正文保留
 	if len(reviews) == 0 {

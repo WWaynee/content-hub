@@ -94,6 +94,9 @@ type seqSentence struct {
 	para    int
 	sent    int
 	binds   []model.EvidenceBinding
+	// P09：本句属于“新增进来 / 被明确去掉来源、但仍找不到任何外部可引”，需要在落库时给
+	// 一条 evidence_status='no_source' 的占位行供 UI 显示黄点（而不是闷声当 plausible 放行）。
+	unsourced bool
 }
 
 // seqPlan 执行结果：新的有序句草稿 + 供 run step/返回的人话级提醒。
@@ -186,10 +189,15 @@ func applyChangePlan(src []model.ArticleSentence, bindBySent map[uint64][]model.
 			// 证据策略：显式清空 > 给 Evidence 重建 > 默认保留原绑定
 			switch {
 			case op.ClearEvidence && len(op.Evidence) == 0:
+				// P09：明确去掉来源但无替代可引 → 文案再不可装成"有据"，标黄待核。
 				wd.binds = nil
+				wd.unsourced = true
+				reviews = append(reviews, fmt.Sprintf("已去掉“%s”原来源，但暂无可引用资料替换，正文按无外部依据(no_source)保留待核", truncateForReview(t)))
 			case len(op.Evidence) > 0:
 				wd.binds = buildEntryBinds(op.Evidence, tenantID)
+				wd.unsourced = false
 			default: // 默认保留：改措辞不卸下来源
+				wd.unsourced = false
 			}
 			wise[i] = wd
 
@@ -211,7 +219,9 @@ func applyChangePlan(src []model.ArticleSentence, bindBySent map[uint64][]model.
 				sec: an.sec, para: an.para,
 				binds: buildEntryBinds(op.Evidence, tenantID),
 			}
+			// P09：带不出可引证据的新句 → 落 no_source 占位供黄点，正文不回退、不闷声放行。
 			if len(ins.binds) == 0 {
+				ins.unsourced = true
 				reviews = append(reviews, fmt.Sprintf("新增句“%s”暂无外部来源，请核对是否需补依据(no_source 待核)", truncateForReview(t)))
 			}
 			// 把新句放到 anchor 之后
@@ -399,6 +409,22 @@ func applySequenceVersion(ctx context.Context, tenantID, workspaceID uint64, req
 			return err
 		}
 		for i := range rows {
+			s := plan.sents[i]
+			if len(s.binds) == 0 && s.unsourced {
+				// P09：无外部可引句子 → 落占位状态行(no_source)。读侧以此显示黄点与三选项，不与真"bound"混淆。
+				pb := model.EvidenceBinding{
+					ArticleVersionID:  ver.ID,
+					ArticleSentenceID: rows[i].ID,
+					TenantID:          tenantID,
+					SourceType:        "knowledge",
+					EvidenceStatus:    "no_source",
+					OrderNo:           0,
+				}
+				if err := tx.Create(&pb).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			for _, b := range plan.sents[i].binds {
 				b.ArticleVersionID = ver.ID
 				b.ArticleSentenceID = rows[i].ID
