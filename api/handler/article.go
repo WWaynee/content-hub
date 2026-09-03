@@ -134,14 +134,21 @@ func restoreWorkspaceStatus(c *gin.Context, wid uint64, prevStatus string) {
 	_ = storage.UpdateWorkspaceStatus(c.Request.Context(), wid, prevStatus)
 }
 
-// buildNoEvidenceMessage 把缺证清单组装成给用户的明确提示。
+// buildNoEvidenceMessage 把缺证清单组装成给用户的明确提示（P06 Q1：不冷冰冰报错,
+// 收敛成一句带三条选择的人话,对应 Guardian ask_human 的心智,避免"无据=整稿红"。)
 func buildNoEvidenceMessage(insuff *orchestrator.ErrInsufficientEvidence) string {
 	var sb strings.Builder
-	sb.WriteString("以下内容在知识库中未检索到可支撑的资料，无法生成含这些数据的稿件：")
+	sb.WriteString("以下内容需要资料/数据支撑，但当前知识库暂时检索不到可靠来源：")
 	for _, m := range insuff.Missing {
-		sb.WriteString("\n· " + m.Text)
+		show := m.Text
+		if m.QueryHint != "" {
+			show += "（建议检索：”" + m.QueryHint + "“）"
+		}
+		sb.WriteString("\n· " + show)
 	}
-	sb.WriteString("\n请补充相关文档资料，或调整需求单后重试。")
+	sb.WriteString("\n\n你希望怎么处理？(a) 我先去资料库补相关资料再重新生成；" +
+		"(b) 把无法支撑的部分去掉、只保留有据内容生成；" +
+		"(c) 放弃本次生成。")
 	return sb.String()
 }
 
