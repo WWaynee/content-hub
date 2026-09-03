@@ -29,6 +29,10 @@ type ReviseSentenceInput struct {
 // sentDraft 句子草稿，记录其原句 index（用于绑定关联）。
 type sentDraft struct {
 	content string
+	// 该句所在层级（沿用被改/被继承句在旧版本中的结构位置），新版重建时回填到 DB
+	sectionIndex   int
+	paragraphIndex int
+	sentenceIndex  int // 段内句号
 	// 未动句继承的原 doc_sentence 绑定；被改句为空（用 NewEvidence 重建）
 	inheritedBinds []model.EvidenceBinding
 }
@@ -72,21 +76,30 @@ func ApplyArticleRevision(ctx context.Context, in ReviseSentenceInput) (uint64, 
 		bindBySent[b.ArticleSentenceID] = append(bindBySent[b.ArticleSentenceID], b)
 	}
 
-	// 组装新句子草稿：未动句继承内容+绑定，被改句换内容
+	// 组装新句子草稿：未动句继承内容+绑定，被改句换内容。层级一律沿用源行 s 的结构位置
+	// （被改句即使改文本也不动章节归属，段落重排在 P08 全面承接）。
 	drafts := make([]sentDraft, len(sents))
 	for i, s := range sents {
-		if i == in.TargetIndex {
-			drafts[i] = sentDraft{content: in.NewText}
-		} else {
-			// 继承内容 + 该句原绑定（ID 清零，落新库）
-			inherited := bindBySent[s.ID]
-			for j := range inherited {
-				inherited[j].ID = 0
-				inherited[j].ArticleVersionID = 0
-				inherited[j].ArticleSentenceID = 0 // 落库时回填新句 ID
-			}
-			drafts[i] = sentDraft{content: s.Content, inheritedBinds: inherited}
+		loc := sentDraft{
+			sectionIndex:   s.SectionIndex,
+			paragraphIndex: s.ParagraphIndex,
+			sentenceIndex:  s.SentenceIndex,
 		}
+		if i == in.TargetIndex {
+			loc.content = in.NewText
+			drafts[i] = loc
+			continue
+		}
+		// 继承内容 + 该句原绑定（ID 清零，落新库）
+		inherited := bindBySent[s.ID]
+		for j := range inherited {
+			inherited[j].ID = 0
+			inherited[j].ArticleVersionID = 0
+			inherited[j].ArticleSentenceID = 0 // 落库时回填新句 ID
+		}
+		loc.content = s.Content
+		loc.inheritedBinds = inherited
+		drafts[i] = loc
 	}
 
 	newVer := &model.ArticleVersion{
@@ -110,7 +123,9 @@ func ApplyArticleRevision(ctx context.Context, in ReviseSentenceInput) (uint64, 
 				ArticleVersionID: newVer.ID,
 				WorkspaceID:      in.WorkspaceID,
 				TenantID:         in.TenantID,
-				SentenceIndex:    i,
+				SectionIndex:     d.sectionIndex,
+				ParagraphIndex:   d.paragraphIndex,
+				SentenceIndex:    d.sentenceIndex,
 				Content:          d.content,
 			}
 		}
@@ -389,20 +404,39 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 
 	// 组装完整新句子列表：现有句子（继承绑定）+ 追加句（新证据）
 	type draft struct {
-		content string
-		binds   []model.EvidenceBinding
+		content        string
+		sectionIndex   int
+		paragraphIndex int
+		sentenceIndex  int
+		binds          []model.EvidenceBinding
 	}
-	oldSentenceID := make([]uint64, len(sents))
 	drafts := make([]draft, 0, len(sents)+1)
-	for i, s := range sents {
-		oldSentenceID[i] = s.ID
+	for _, s := range sents {
 		inherited := bindBySent[s.ID]
 		for j := range inherited {
 			inherited[j].ID = 0
 			inherited[j].ArticleVersionID = 0
 			inherited[j].ArticleSentenceID = 0
 		}
-		drafts = append(drafts, draft{content: s.Content, binds: inherited})
+		d := draft{
+			content:        s.Content,
+			sectionIndex:   s.SectionIndex,
+			paragraphIndex: s.ParagraphIndex,
+			sentenceIndex:  s.SentenceIndex,
+			binds:          inherited,
+		}
+		drafts = append(drafts, d)
+	}
+	// 追加为新段：放到文档末尾（同一最后章节内，paragraph_index = 它现有的最大段号 + 1）。
+	// 旧版/降级数据 sec/para 可能全为 0，这里仍以“同 section 内 max paragraph+1”推进，保证排到最后。
+	lastSec, maxPara := 0, 0
+	for _, d := range drafts {
+		if d.sectionIndex > lastSec {
+			lastSec = d.sectionIndex
+			maxPara = d.paragraphIndex
+		} else if d.sectionIndex == lastSec && d.paragraphIndex > maxPara {
+			maxPara = d.paragraphIndex
+		}
 	}
 	// 追加句的绑定：取前 3 条新证据
 	appendBinds := []model.EvidenceBinding{}
@@ -419,7 +453,12 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 			OrderNo:        i,
 		})
 	}
-	drafts = append(drafts, draft{content: newText, binds: appendBinds})
+	drafts = append(drafts, draft{
+		content:        newText,
+		sectionIndex:   lastSec,
+		paragraphIndex: maxPara + 1,
+		binds:          appendBinds,
+	})
 
 	newVer := &model.ArticleVersion{
 		ArticleID:         a.ID,
@@ -441,7 +480,9 @@ func AppendArticleContent(ctx context.Context, tenantID, workspaceID uint64, ins
 				ArticleVersionID: newVer.ID,
 				WorkspaceID:      workspaceID,
 				TenantID:         tenantID,
-				SentenceIndex:    i,
+				SectionIndex:     d.sectionIndex,
+				ParagraphIndex:   d.paragraphIndex,
+				SentenceIndex:    d.sentenceIndex,
 				Content:          d.content,
 			}
 		}

@@ -58,18 +58,23 @@ func PersistArticleSnapshot(ctx context.Context, tenantID, workspaceID uint64, a
 		return 0, ErrArticleVersionConflict
 	}
 
-	// 2. 展开 article → sentences + binding 草稿
+	// 2. 展开 article → sentences + binding 草稿。
+	// 精确落库三段结构：SectionIndex/ParagraphIndex 为真实章节/段落序号，
+	// SentenceIndex 为该段内句号(每段从 0 起)。读取方一律按 (section,paragraph,sentence) 三元排序，
+	// 因此不再拿“全局平铺序号”当 DB 栏（该全局序号仅作本快照内部 binding 回填的切片 index）。
 	var sentences []model.ArticleSentence
 	var bindingDrafts []bindingDraft
-	sentSeq := 0
-	for _, sec := range article.Sections {
-		for _, para := range sec.Paragraphs {
-			for _, s := range para.Sentences {
+	sentSeq := 0 // 本快照内句子的全局平铺序号，用于把绑定快速映射回建库后的句行(不写入 DB 栏)
+	for si, sec := range article.Sections {
+		for pi, para := range sec.Paragraphs {
+			for kt, s := range para.Sentences {
 				sentences = append(sentences, model.ArticleSentence{
-					WorkspaceID:   workspaceID,
-					TenantID:      tenantID,
-					SentenceIndex: sentSeq,
-					Content:       s.Text,
+					WorkspaceID:    workspaceID,
+					TenantID:       tenantID,
+					SectionIndex:   si,
+					ParagraphIndex: pi,
+					SentenceIndex:  kt,
+					Content:        s.Text,
 				})
 				for orderNo, ref := range s.EvidenceRefs {
 					if int(ref) >= len(evidence) {

@@ -1,8 +1,8 @@
 # P03 · 结构化层级真落库（W1 命根：section/paragraph 不是 0）
 
 - RFC 出处：rev-4 §13.1 / W1；README 顺序=P03
-- 状态：待开工
-- 前置：无（与 P01/P02 正交，可并行）
+- 状态：**DONE**（已实现并真验，见文末“完成记录”）
+- 实现简：`PersistArticleSnapshot` 写真实 `(section,paragraph,sentence)`；DB 读按三元排序；revise(Apply/Append) 继承/推进段落结构；`GetArticle` 返回 `sections` 分层；旧数据线性降级、不做启发式猜标题。
 - 目标：让 `article_sentences` 真正携带 `section_index/paragraph_index/sentence_index`，前端/后续包才拿得到"结构化"稿件；并把 `GetArticle` 返回带层级结构，替换 "平铺数组 + 一段 full_content markdown" 的现状。
 
 ---
@@ -45,3 +45,18 @@
 
 ## 7. done gate
 “P03 done” = 新生成/新增段/追加段的 `article_sentences` 已带真 section/paragraph;`GetArticle` 返回结构层;旧版走线性降级;单测绿。
+
+---
+
+## ✅ 完成记录（真实验收）
+- **已实现**：
+  - `api/service/generation.go::PersistArticleSnapshot` 遍历 `article.Sections→Paragraphs→Sentences` 时写入真实的 `SectionIndex/ParagraphIndex/SentenceIndex`（后一项=段内句号、每段从 0 起）；内部全序 sentSeq 仅当快照内把 evidence 绑定回已建好的句行所需的切片 index，不写入 DB 栏。
+  - `storage/article.go::ListArticleSentences` 排序改为 `(section_index, paragraph_index, sentence_index)`；`allFlat` 辅助把旧版本(全 0 / 无结构)退化到 `ORDER BY id`（线性）返回，避免误导性重建。
+  - `api/service/revise.go`：`sentDraft`/Append 内部 `draft` 增加三栏字段；`ApplyArticleRevision` 落新版时逐句继承 source 行的 sec/para/sent（被改句换文本不换归属）；`AppendArticleContent` 复制旧行时保留其层级，并把新增内容作为**新的一段**落下（`paragraph_index = 同 section 最大 + 1`）。
+  - `api/handler/article.go::GetArticle` 新增 `sections` 分层响应（`groupSentencesByStructure`：section→paragraph→sentence 三元重建，并保留 `sentence.id` 便于 evidence binding 展示映射）；保留原 `sentences/full_content/bindings` 兼容现前端。
+- **验收（本机真 MySQL，非 skip）**：
+  - 新增 `api/service/structure_hierarchy_persist_test.go`：构造 2 section×多 paragraph×多句的 `agent.Article`，`PersistArticleSnapshot` 落库后 `ListArticleSentences` 读回，断言 6 句严格按 `(section,paragraph,sentence)` 三元精确重建：
+    `go test ./api/service/ -run TestPersistStructuredHierarchy -count=1 -v`
+    → **PASS「6 句按 (section,paragraph,sentence) 精确重建」**
+  - `go test ./... -count=1`（全量纯单测）绿；`TestRevisionApplyCAS/TestConcurrentGenerationVersionCAS/TestExport/TestPersistArticleSnapshot/TestRevisionApply` 等 DB 回归均绿；integration 全源码编译通过。
+- **兼容/边界**：旧版本（三栏全缺、historically sentence_index 全局递增）无法安全地由 DB 还原多章多段 → 读取方自动退化为**线性(单节线性段)**返回，不做基于 full_content 的启发式猜标题（标题解析交给 P11，在生成端显式保留章节可读源后更可靠）。段落重排/增删句(sentence-level delete/move/insert)归 P08，P03 把"每次写后三段结构可被读取方精确重建"做对，为 P08/P11 打底。

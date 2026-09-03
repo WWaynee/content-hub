@@ -160,8 +160,76 @@ func GetArticle(c *gin.Context) {
 		"title":              a.Title,
 		"full_content":       ver.FullContent,
 		"sentences":          sents,
+		"sections":           groupSentencesByStructure(sents), // rev2-P11/rev4-W1: 结构化层级(旧版线性退化见实现)
 		"bindings":           binds,
 	})
+}
+
+// groupSentencesByStructure 把某版本的句子行映射回"section→paragraph→sentence"三级结构。
+// 数据来自 DB 中真实写入的 section/paragraph_index(P03 生成写真实结构)。对旧版本(三 index 缺失、
+// 退化为全部 0 的线性旧数据)统一当成一个线性容器：单 section、按段落 index/顺序拆分，供前端展示，
+// 不做任何启发式猜标题(标题解析放 P11/后端不在此)。
+func groupSentencesByStructure(sents []model.ArticleSentence) []gin.H {
+	type paraView struct {
+		paragraph_index int
+		sentences       []gin.H
+	}
+	var out []gin.H
+	bySec := map[int]map[int][]gin.H{} // section -> (para -> sentenceViews)
+	for _, s := range sents {
+		sViews := gin.H{
+			"sentence_index": s.SentenceIndex,
+			"id":             s.ID,
+			"content":        s.Content,
+		}
+		if _, ok := bySec[s.SectionIndex]; !ok {
+			bySec[s.SectionIndex] = map[int][]gin.H{}
+		}
+		bySec[s.SectionIndex][s.ParagraphIndex] = append(bySec[s.SectionIndex][s.ParagraphIndex], sViews)
+	}
+	// 输出有序(section asc)。paragraph 内为 append 序(已是三元排序后输入)。
+	for si := 0; si <= maxKey(bySec); si++ {
+		paras, ok := bySec[si]
+		if !ok {
+			continue
+		}
+		var parasView []gin.H
+		for pi := 0; pi <= maxKeyParas(paras); pi++ {
+			pv, ok := paras[pi]
+			if !ok {
+				continue
+			}
+			parasView = append(parasView, gin.H{
+				"paragraph_index": pi,
+				"sentences":       pv,
+			})
+		}
+		out = append(out, gin.H{
+			"section_index": si,
+			"paragraphs":    parasView,
+		})
+	}
+	return out
+}
+
+func maxKey(m map[int]map[int][]gin.H) int {
+	max := -1
+	for k := range m {
+		if k > max {
+			max = k
+		}
+	}
+	return max
+}
+
+func maxKeyParas(m map[int][]gin.H) int {
+	max := -1
+	for k := range m {
+		if k > max {
+			max = k
+		}
+	}
+	return max
 }
 
 // ExportArticle 导出稿件（合并 md）。

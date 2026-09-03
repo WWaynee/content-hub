@@ -90,14 +90,38 @@ func CASBumpArticleCurrentVersion(ctx context.Context, articleID, expected, next
 	return res.RowsAffected == 1, nil
 }
 
-// ListArticleSentences 列出某版本的全部句子。
+// ListArticleSentences 列出某版本的全部句子，按结构化顺序 (section, paragraph, sentence) 三元升序。
 func ListArticleSentences(ctx context.Context, versionID uint64) ([]model.ArticleSentence, error) {
 	var list []model.ArticleSentence
 	if err := GetDB().WithContext(ctx).Where("article_version_id = ?", versionID).
-		Order("sentence_index ASC").Find(&list).Error; err != nil {
+		Order("section_index ASC, paragraph_index ASC, sentence_index ASC").Find(&list).Error; err != nil {
 		return nil, err
 	}
+	// 兼容旧数据：若这条旧版本从未落结构（三 index 全 0 单段），退化为按创建序(id)返回即可保持可读
+	if len(list) > 1 && allFlat(list) {
+		var flat []model.ArticleSentence
+		if err := GetDB().WithContext(ctx).Where("article_version_id = ?", versionID).
+			Order("id ASC").Find(&flat).Error; err != nil {
+			return nil, err
+		}
+		return flat, nil
+	}
 	return list, nil
+}
+
+// allFlat 判断某版本句子是否全部没有结构信息（生成代码升级前落库的旧版本：sec/para 恒 0，sent 全 0 或 顺序不明）。
+// 这类旧版本无法用三元重建真实章节，退化为线性(单段)语义由读取方处理，不强猜。
+func allFlat(list []model.ArticleSentence) bool {
+	for _, s := range list {
+		// 只要存在任一句有非 0 层次即为结构化新版本
+		if s.SectionIndex != 0 || s.ParagraphIndex != 0 {
+			return false
+		}
+	}
+	// 若存在不止一个句子且全部 paragraph/section=0，则无法仅凭 (0,0,n) 区分"一个真段落内的第 n 句"
+	// 与"旧版本的多段都被错误记为 0"。双保险：若 sentence_index 出现相邻不连续(0,1,2...)假设单段可。
+	// 由于历史版本 sentence_index 也常为全局递增(旧实现)，这里统一按线性 id 处理。
+	return true
 }
 
 // ListArticleBindings 列出某版本的全部证据绑定。
