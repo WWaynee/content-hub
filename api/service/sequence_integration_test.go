@@ -13,10 +13,11 @@ import (
 )
 
 // TestSequenceEdit_EndToEndWithCAS —— P08 change_list 在真 MySQL 上的端到端：
-//   - 先 PersistArticleSnapshot 造出一份 v1（A/B 两句，A 有证据取自知识库句）；
-//   - 提交一次受控序列编辑(删除 A + 在 B 后插入一句无来源 + 改 B 文本) → 断言 v2 快照、
-//     顺序、保留 B 原绑定、被删 A 消失、insert 新句无绑定被保留(reviews 带 no_source)。
-//   - 再以过期 base_article_version 提交 → 由 CAS 拒绝，返回 ErrSequenceConflict 且不产生新版本。
+//   - 造 v1：三句 {A带证据5001待删, B带证据5002待改, C无据待留}；
+//   - change_list: delete A / edit B(默认保绑定) / insert 无来源句到 B 后；
+//     断言: v2 版本推进(ReferencedVersion=1)、顺序 [B改, 新句, C]、A 与其证据5001一并消失、
+//     B 的5002证据经 edit 原样保留、insert 无源带 no_source 提醒、
+//     旧 base(=1) 重复提交被 CAS 拒绝且版本不推进。
 func TestSequenceEdit_EndToEndWithCAS(t *testing.T) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -29,13 +30,17 @@ func TestSequenceEdit_EndToEndWithCAS(t *testing.T) {
 	tenantID := uint64(99990050)
 	w, _ := CreateWorkspace(ctx, tenantID, 1, "seq-e2e", nil)
 
-	evidence := []agent.Evidence{{FileID: 11, DocSentenceID: 5001, VersionMd5: "v1", SourceText: "依据内容甲"}}
+	evidence := []agent.Evidence{
+		{FileID: 11, DocSentenceID: 5001, VersionMd5: "v1", SourceText: "依据甲(A的)"},
+		{FileID: 12, DocSentenceID: 5002, VersionMd5: "v1", SourceText: "依据乙(B的)"},
+	}
 	article := &agent.Article{
 		Title: "稿",
 		Sections: []agent.Section{{Paragraphs: []agent.Paragraph{{
 			Sentences: []agent.Sentence{
-				{Text: "句A被删除", EvidenceRefs: []uint64{0}},
-				{Text: "句B会被改又保留", EvidenceRefs: []uint64{}},
+				{Text: "句A将被删", EvidenceRefs: []uint64{0}},
+				{Text: "句B将被改", EvidenceRefs: []uint64{1}},
+				{Text: "句C无据保留", EvidenceRefs: []uint64{}},
 			},
 		}}}},
 	}
@@ -49,17 +54,17 @@ func TestSequenceEdit_EndToEndWithCAS(t *testing.T) {
 		t.Fatalf("期望基线 v1, got %d", prev.VersionNo)
 	}
 	sents, _ := storage.ListArticleSentences(ctx, prev.ID)
-	if len(sents) != 2 {
-		t.Fatalf("v1 应有 2 句, got %d", len(sents))
+	if len(sents) != 3 {
+		t.Fatalf("v1 应有 3 句, got %d", len(sents))
 	}
 	idA, idB := sents[0].ID, sents[1].ID
 
-	// 提交 change_list: delete A, insert(无来源, in B 后), edit B 文本
+	// 提交 change_list：删除 A(带证)、改 B(默认保绑定)、在 B 后插入一句无来源
 	verID, reviews, serr := RunSequenceEdit(ctx, tenantID, 1, w.ID, &ChangeListRequest{
 		Ops: []ChangeOp{
 			{Op: "delete", TargetID: idA},
-			{Op: "edit", TargetID: idB, NewText: "句B被改又保留-改"},
-			{Op: "insert", AnchorID: idB, NewText: "这句没有基础文档支撑"},
+			{Op: "edit", TargetID: idB, NewText: "句B已被改"},
+			{Op: "insert", AnchorID: idB, NewText: "新插句没文档支撑"},
 		},
 	})
 	if serr != nil {
@@ -69,36 +74,50 @@ func TestSequenceEdit_EndToEndWithCAS(t *testing.T) {
 		t.Fatal("未产新版本")
 	}
 
-	// 校验新版本 v2
+	// 版本推进
 	cur, _ := storage.GetLatestArticleVersion(ctx, a.ID)
 	if cur.VersionNo != 2 || cur.ReferencedVersion != 1 {
 		t.Errorf("期望 v2(ref v1), got v%d", cur.VersionNo)
 	}
 	after, _ := storage.ListArticleSentences(ctx, cur.ID)
-	if len(after) != 2 {
-		t.Fatalf("删1插1改1后应 2 句, got %d", len(after))
+	// 删除A + 插1 → 应为 3 行:[B改, 新句, C]
+	if len(after) != 3 {
+		t.Fatalf("删A插1(位置B后)应 3 句, got %d", len(after))
 	}
-	// 顺序: B(改) < 新句(插入其后)
-	if after[0].Content != "句B被改又保留-改" || after[1].Content != "这句没有基础文档支撑" {
-		t.Errorf("seq 缺序不达: %q | %q", after[0].Content, after[1].Content)
-	}
-	// A 该消失
-	for _, s := range after {
-		if s.Content == "句A被删除" {
-			t.Error("被删句仍出现在新版本")
+	order := []string{after[0].Content, after[1].Content, after[2].Content}
+	exp := []string{"句B已被改", "新插句没文档支撑", "句C无据保留"}
+	for i := range exp {
+		if order[i] != exp[i] {
+			t.Errorf("顺序/内容不符: [%v], want [%v]", order, exp)
+			break
 		}
 	}
-	// B 的原绑定应保留（改文本默认不卸来源）
-	bindsB, _ := storage.ListArticleBindings(ctx, cur.ID)
-	if len(bindsB) != 1 || bindsB[0].DocSentenceID != 5001 {
-		t.Errorf("B 绑定应在编辑后被保留, got %d", len(bindsB))
+	// A 与其证据 5001 一并消失；应仅剩 B 的 5002 一条
+	bindsNew, _ := storage.ListArticleBindings(ctx, cur.ID)
+	if len(bindsNew) != 1 {
+		t.Fatalf("应仅剩 1 条绑定(B 的 5002, 被 edit 保留), got %d 条", len(bindsNew))
 	}
-	// insert 无来源应给出 no_source 提醒且正文已保留
+	if bindsNew[0].DocSentenceID != 5002 {
+		t.Errorf("存活绑定应为 5002(B), got %d（5001/被删句不应残留）", bindsNew[0].DocSentenceID)
+	}
+	// B 的证据挂在【edit 后的】句上
+	guid := "_none_"
+	for _, b := range bindsNew {
+		for _, s := range after {
+			if s.ID == b.ArticleSentenceID {
+				guid = s.Content
+			}
+		}
+	}
+	if guid != "句B已被改" {
+		t.Errorf("B 的证据未随 edit 后的句保留(target=%q)", guid)
+	}
+	// insert 无来源 → no_source 提醒且正文保留
 	if len(reviews) == 0 {
 		t.Error("insert 无来源应给 no_source 提醒")
 	}
 
-	// 并发/CAS：用过期 base(=1)再提交一次 —— 现在 current 已是 2,故冲突、不产新版本
+	// 并发/CAS：以过期 base(=1) 提交(已到 v2) → 拒绝且不推进版本
 	verBefore := currentArticleVersion(ctx, tenantID, w.ID)
 	_, _, cerr := RunSequenceEdit(ctx, tenantID, 1, w.ID, &ChangeListRequest{
 		BaseArticleVersion: 1,

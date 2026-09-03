@@ -64,7 +64,7 @@
   - `go test ./api/service/ -run TestChangePlan` **PASS ×8**：edit 保段落/默认保绑定；binding 策略(clear/override)；insert 无源 → 落段归 anchor+无绑定+no_source review；insert with evidence 绑定新句；delete 关集成"删句消失+未删绑定保留+段内句号重排"；move 跨段文本随行+绑定保留+src 顺序；段内 reflow；未知 op/move 到自己/?anchor 不存在报错。
   - `go vet ./api/... ./storage/...`、`go vet -tags=integration ./api/service/` 零告警；`go build ./...` 通过。
   - `go test ./... -count=1`：除 `cmd/migrate`(其 `migrate_test.go` 直接 Fatal 强连 MySQL，本会话 MySQL daemon 关闭导致连接 refused，属**既有环境性硬依赖、与本包代码无关**，起 MySQL 后同初基线即绿)外，其它包全绿。
-- **为校验真实落库/CAS 冲突** 新增 `api/service/sequence_integration_test.go`（`//go:build integration`,真 MySQL）——造 v1 → 提交 change_list(删 A/改 B/在 B 后插无源句) → 断言 v2、顺序、原绑定保留、insert 无源提醒,再用过期 base 提交断言被 CAS 拒绝且版本不推进。⚠️ 本会话 Docker daemon 未运行、MySQL 不可达,该集成路径已通过 `-tags=integration` 编译/vet 校验但**未在本会话实际执行**,应在有 MySQL 的环境上跑一遍(下面给了命令)。
+- **为校验真实落库/CAS 冲突** 新增 `api/service/sequence_integration_test.go`（`//go:build integration`,真 MySQL）——造 v1(三句:A 带证待删 / B 带证待改 / C 无据待留) → 提交 change_list(删 A/改 B/在 B 后插无源句) → 断言 v2、顺序 [B改,新句,C]、A 及其证据一并消失、B 的证据经 edit 原样保留、insert 无源带 no_source 提醒,再用过期 base(=1) 提交断言被 CAS 拒绝且版本不推进。**已实跑验证**：`go test -tags=integration ./api/service/ -run TestSequenceEdit_EndToEndWithCAS` → **PASS**；另 `go test ./... -count=1` 全仓(含此前因本地 MySQL 未起而红的 `cmd/migrate`)在中间件(MySQL 4833)运行下**全绿**。
 - **代码位置**：新增 `api/service/sequence.go`、`api/service/sequence_test.go`、`api/service/sequence_integration_test.go`；修改 `storage/model/agentrun.go`(RunSequence)、`api/service/runlink.go`、`api/handler/article.go`、`api/router.go`。
 - **不改变既有路径**：revision/append/regenerate 仍走它们原来的 run 与落库；未动句读侧(GetArticle 的 `sentence_views`)不受新列/序号字段影响(本包不加列)。换段/富文本编辑不在本包(P09/P11 表达)。
 
