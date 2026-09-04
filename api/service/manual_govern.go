@@ -9,6 +9,7 @@ import (
 	"github.com/WWaynee/content-hub/agent/censor"
 	"github.com/WWaynee/content-hub/llmclient"
 	"github.com/WWaynee/content-hub/storage"
+	"github.com/WWaynee/content-hub/storage/model"
 )
 
 // manual_govern.go — P09(治理补充)：对一句“可能需要对外表态”的手编文本，跑一次真校验并归三态：
@@ -115,4 +116,52 @@ func dedupeGovernSources(in []GovernSource) []GovernSource {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].DocSentenceID < out[j].DocSentenceID })
 	return out
+}
+
+// governSeqSents 对一次 change_list 里"带不出可引证"的待核新句跑服务端真校验并就地改写 plan：
+//   - bound     → 把治理认出的源塞回 s.binds（清 unsourced，正文保留并 give by bound）
+//   - plausible → 纯措辞：清 unsourced（不再黄，也无绑定）
+//   - no_source → 保持 unsourced（黄点待作者取舍；正文不回退）
+//
+// 治理自身连不上外部时按 no_source 兜底，绝不因治理而丢用户编辑或谎称有据。
+// 是 best-effort：任何单句治理异常都不让整批失败(保守落黄)。
+func governSeqSents(ctx context.Context, tenantID, wsID uint64, p *seqPlan) {
+	for i := range p.sents {
+		s := &(p.sents[i])
+		if !s.unsourced {
+			continue
+		}
+		g, gerr := GovernManualSentence(ctx, tenantID, wsID, s.content)
+		if gerr != nil {
+			// 保守：治理判不了 → 标黄留作者,不至于没证却当有证
+			p.reviews = append(p.reviews, fmt.Sprintf("治理该句失败(%s)，已按‘无外部依据·待复核’保留。", gerr.Error()))
+			continue
+		}
+		if g.ClaimType == ClaimTypeBound {
+			// bound：贴上可引源，去掉黄点
+			evs := make([]model.EvidenceBinding, 0, len(g.Sources))
+			for j, src := range g.Sources {
+				evs = append(evs, model.EvidenceBinding{
+					TenantID:       tenantID,
+					SourceType:     src.SourceType,
+					DocFileID:      src.FileID,
+					DocSentenceID:  src.DocSentenceID,
+					EvidenceStatus: ClaimTypeBound,
+					OrderNo:        j,
+				})
+			}
+			s.binds = append(s.binds, evs...)
+			s.unsourced = false
+			p.reviews = append(p.reviews, "已为“"+truncateForReview(s.content)+"”找到外部来源(bound)。")
+			continue
+		}
+		// plausible：无数据断言 → 纯措辞，不该黄
+		if g.ClaimType == ClaimTypePlausibleAI {
+			s.unsourced = false
+			s.binds = nil
+			continue
+		}
+		// no_source：保持现状；避免重复黄文案（reviews 已含结构层默认提醒另起、语义一致即可）
+		p.reviews = append(p.reviews, g.HumanText)
+	}
 }

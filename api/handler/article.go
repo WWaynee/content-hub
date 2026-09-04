@@ -315,6 +315,7 @@ func jsonToStringSlice(j interface{}) []string {
 // applySequenceRequest 一次 change_list 请求 body。
 type applySequenceBody struct {
 	BaseArticleVersion int                `json:"base_article_version,omitempty"`
+	Govern             bool               `json:"govern,omitempty"`
 	Ops                []service.ChangeOp `json:"ops"`
 }
 
@@ -333,7 +334,7 @@ func HandleArticleSequence(c *gin.Context) {
 		response.BadRequest(c, "参数解析失败："+err.Error())
 		return
 	}
-	req := &service.ChangeListRequest{BaseArticleVersion: body.BaseArticleVersion, Ops: body.Ops}
+	req := &service.ChangeListRequest{BaseArticleVersion: body.BaseArticleVersion, Ops: body.Ops, Govern: body.Govern}
 	verID, reviews, rerr := service.RunSequenceEdit(c.Request.Context(), tenantID, userID, wid, req)
 	if rerr != nil {
 		if errors.Is(rerr, service.ErrArticleVersionConflict) || errors.Is(rerr, service.ErrSequenceConflict) {

@@ -51,6 +51,8 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
   const [draft, setDraft] = useState('')
   const [insertAfterId, setInsertAfterId] = useState<number | 0>(0)
   const [insertText, setInsertText] = useState('')
+  // 移动两步式：moveFrom>0 = 已选定要搬的那句；再点另一句的「移到这里」→ 落到其后。
+  const [moveFrom, setMoveFrom] = useState<number | 0>(0)
 
   const rows: Row[] = useMemo(() => {
     // 从 props 派生（edit/insert/delete 后 reload 由父组件拉新 article，让本组件无本地脏样本）
@@ -81,35 +83,13 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
     }
   }
 
-  async function governClaim(text: string): Promise<{ ev: any[]; avoid: boolean }> {
-    try {
-      const r: any = await api.post(`/workspaces/${wid}/article/govern`, { text })
-      const ct: string | undefined = r && r.claim_type
-      if (ct === 'bound') {
-        const ev = (r.sources as any[]).map((s) => ({
-          file_id: s.file_id,
-          doc_sentence_id: s.doc_sentence_id,
-          source_type: s.source_type || 'knowledge',
-        }))
-        return { ev, avoid: false }
-      }
-      if (ct === 'plausible') {
-        return { ev: [], avoid: true }
-      }
-      return { ev: [], avoid: false } // no_source / fallback → 交给黄点，不回退
-    } catch {
-      return { ev: [], avoid: false }
-    }
-  }
-
   const saveEdit = async (rowId: number) => {
     if (!draft.trim()) return
     await bump(async () => {
-      const g = await governClaim(draft.trim())
-      const op: any = { op: 'edit', target_sentence_id: rowId, new_text: draft.trim() }
-      if (g.avoid) op.avoid_no_source = true
-      if (g.ev.length) op.evidence = g.ev
-      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, { ops: [op] })
+      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, {
+        govern: true, // P09：服务端对"带不出证的改动句"跑一次真治理(bound/no_source/plausible)再落库
+        ops: [{ op: 'edit', target_sentence_id: rowId, new_text: draft.trim() }],
+      })
       message.info(r?.human_text || '已把改动保存')
       setEditingId(0)
       setDraft('')
@@ -120,11 +100,10 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
     const t = insertText.trim()
     if (!t) return
     await bump(async () => {
-      const g = await governClaim(t)
-      const op: any = { op: 'insert', anchor_sentence_id: anchorId, new_text: t }
-      if (g.avoid) op.avoid_no_source = true
-      if (g.ev.length) op.evidence = g.ev
-      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, { ops: [op] })
+      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, {
+        govern: true, // 同上：让服务端对这次引入的新句做一次真治理
+        ops: [{ op: 'insert', anchor_sentence_id: anchorId, new_text: t }],
+      })
       message.info(r?.human_text || '已插入一句')
       setInsertAfterId(0)
       setInsertText('')
@@ -137,6 +116,16 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
         ops: [{ op: 'delete', target_sentence_id: rowId }],
       })
       message.info(r?.human_text || '已删除这句')
+    })
+  }
+
+  const moveInvoke = async (targetId: number, anchorId: number) => {
+    await bump(async () => {
+      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, {
+        ops: [{ op: 'move', target_sentence_id: targetId, anchor_sentence_id: anchorId }],
+      })
+      message.info(r?.human_text || '已把这句挪到目标句之后')
+      setMoveFrom(0)
     })
   }
 
@@ -155,18 +144,34 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
       {rows.length === 0 ? (
         <Typography.Text type="secondary">这篇稿子尚无句子；先在需求单生成，或用界面给某句后面添加新句。</Typography.Text>
       ) : null}
-      {rows.map((row) => {
+      {rows.map((row, idx) => {
+        const seqNo = idx + 1
         const mark = MarkOf(row.claim)
         const isEdit = editingId === row.id
         const showInsert = insertAfterId === row.id
         return (
           <div key={row.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            {moveFrom > 0 && row.id !== moveFrom && !busy ? (
+              <Button size="small" type="dashed" style={{ marginBottom: 6 }} onClick={() => moveInvoke(moveFrom, row.id)}>
+                ⇣ 放到本句之后
+              </Button>
+            ) : null}
             {mark ? (
               <div style={{ marginBottom: 6 }}>
                 <Tag color={mark.color}>{mark.label}</Tag>
                 <Tooltip title={mark.tip}>
                   <QuestionCircleOutlined style={{ color: mark.color === 'orange' ? '#faad14' : '#888', marginLeft: 4 }} />
                 </Tooltip>
+                <span style={{ marginLeft: 8, opacity: 0.7 }}>#{seqNo}</span>
+                <Button
+                  size="small"
+                  type={row.id === moveFrom ? 'link' : 'text'}
+                  style={{ marginLeft: 8 }}
+                  disabled={busy}
+                  onClick={() => { setMoveFrom(row.id === moveFrom ? 0 : row.id) }}
+                >
+                  {row.id === moveFrom ? '已选·点别句「放到本句之后」' : '把它移到别句后'}
+                </Button>
               </div>
             ) : null}
 

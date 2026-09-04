@@ -83,6 +83,9 @@ type ChangeOp struct {
 type ChangeListRequest struct {
 	BaseArticleVersion int        `json:"base_article_version"`
 	Ops                []ChangeOp `json:"ops"`
+	// Govern（P09 治理补足）：保存时对本次引入的"带不出可引证"的新句跑一遍服务端真校验
+	// (bound/no_source/plausible)并就地改写 plan；默认 false=纯结构落库(离线/无 LLM 也稳)。
+	Govern bool `json:"govern,omitempty"`
 }
 
 // ---------- 内部工作稿 ----------
@@ -365,6 +368,11 @@ func applySequenceVersion(ctx context.Context, tenantID, workspaceID uint64, req
 	plan, err := applyChangePlan(sents, bindBySent, req, tenantID)
 	if err != nil {
 		return 0, nil, err
+	}
+	// Govern（P09 治理补足，可选）：对"带不出可引证"的新句跑服务端真校验并就地改写 plan；
+	// 治理为 best-effort，连不上外部时按 no_source 兜底，不进不打断编辑。
+	if req.Govern {
+		governSeqSents(ctx, tenantID, workspaceID, plan)
 	}
 
 	// 落库前无句（理论上 change plan 至少应留或被真删空——空稿也算一种结果，仍允许生成空版本）

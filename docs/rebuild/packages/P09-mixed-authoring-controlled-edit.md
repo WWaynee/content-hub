@@ -100,3 +100,19 @@
   - 边界如实说明：每句新文本用一轮"检索+Full Check"，不额外再跑 Guardian 的多轮换 query/ask_human 编排——那更适合同句有多个值得单独追问的原子断言(P06 claim)；本条做到"与新文本结对的可引证据 + 是否属纯措辞"的真判定,且可回放在后续嵌入 run step,不走死循环/不弹底层工具名。
 - 前端 `ArticleSentencesBoard`：改一句/后插一句提交前先 `POST /article/govern` 拿 claim；按 bound(带 evidence) / plausible(avoid_no_source=纯措辞不黄) / no_source(照旧黄) 组织 op → 再 PATCH sequence。
 - model/sequence：`ChangeOp.AvoidNoSource`；plan 对"无证据但 AvoidNoSource"的新句不落 no_source（plausible）。纯单测 `TestChangePlan_AvoidNoSourceKeepsPlausible` 通过；`go vet`/`go build ./...`/`web tsc` 0 错。
+
+---
+
+## ✅ P09 · 打磨二：治理统一进 run + 移动落库完成
+
+> 从一个"真在稿面办公"的用户视角再收敛两点体验：**保存不重复等待与移动可落在稿上**。
+- **治理统一到序列保存内（而非每次先在点保存前单独查）**：`ChangeListRequest.Govern`(前端 PATCH 带 `govern:true`)。
+  `applySequenceVersion` 在 change 落快照前对"带不出可引证据的新句"(即 plan 中标成 no_source 候选)统一跑服务端真治理
+  (manual_govern.go::`governSeqSents` 就地改写 plan)：bound→补源去黄、plausible→清 unsourced 不黄、no_source→保持黄点给作者三选。
+  好处：用户点一次保存 = 一次性服务端治理+结构落库；治理默认关(`Govern=false`)时纯离线也能落、单测/CI 稳，连不上外部走高底线兜底不夹断。
+  前端 `saveEdit/insertAfter` 不再单独 POST `/article/govern`（该端点仍保留作可选 API 方便离线预判），直接 `PATCH sequence + govern:true`。
+- **句子可安全"挪"到任意另一句之后**：`ArticleSentencesBoard` 增加两步式移动(每个句头上「把它移到别句后」→ 选中源后其它句子头上出现「放到本句之后」)，
+  调 `PATCH {op:'move'}`；后端(P08)移动不动文本、绑定随行、段落号就地重排——移动=排版动作不触发治理。
+- 句头加 `#序号` 便于在长稿里指认/校对在哪一句；`govern`+`move`/`delete` 复用在同一 run 的 op 批，页面 reload 即见新版本。
+- **验证**：go vet/go build(后端)、`go test ./api/service` 全绿、既有 `TestSequenceEdit_EndToEndWithCAS`(真 MySQL)不回退；
+  前端 `npx tsc -b` 0 错、`npm run lint` 0 error(仓库原有 8 条 set-state-in-effect warning 未涉新增)。
