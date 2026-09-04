@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -13,6 +14,10 @@ import (
 
 var QdrantClient *qdrant.Client
 
+// ErrQdrantNotReady 检索基础设施尚未初始化（未走 cmd/api 启动编排 / 治理等 best-effort 调用触发）。
+// 让上层能据此做“防御性降级”，而不是对 nil 客户端 panic 而崩掉整个请求。
+var ErrQdrantNotReady = errors.New("Qdrant 客户端未初始化（检索服务未就绪）")
+
 // DefaultVectorSize 向量维度，与 Embedding 模型一致（Qwen3-VL-Embedding-8B = 4096）。
 // 后续连接真实 embedding 时，若维度不同需同步此值。
 const DefaultVectorSize = uint64(4096)
@@ -21,9 +26,9 @@ const DefaultVectorSize = uint64(4096)
 func InitQdrant(vectorSize uint64) error {
 	cfg := config.Get().Qdrant
 	client, err := qdrant.NewClient(&qdrant.Config{
-		Host:                    cfg.Host,
-		Port:                    cfg.GRPCPort,
-		SkipCompatibilityCheck:  true,
+		Host:                   cfg.Host,
+		Port:                   cfg.GRPCPort,
+		SkipCompatibilityCheck: true,
 	})
 	if err != nil {
 		return fmt.Errorf("初始化 Qdrant 客户端失败: %w", err)
@@ -58,16 +63,16 @@ func ensureCollection(ctx context.Context, name string, vectorSize uint64) error
 
 // QdrantVector 要写入的一条向量 + 元数据。
 type QdrantVector struct {
-	ID           uint64    // 点全局唯一 ID
-	TenantID     uint64    // 租户（隔离键）
-	FileID       uint64    // 文档 ID
-	Scope        string    // scope=public/private（可见性平面）
-	OwnerUserID  uint64    // owner_user_id：private 库为归属用户，public 库为 0
-	VersionMd5   string    // 版本
-	ChunkIndex   int       // 切片序号
-	Content      string    // 切片原文（检索直接返回）
-	ChapterTitle string    // 章节标题
-	Latest       bool      // 是否最新版本（检索过滤键）
+	ID           uint64 // 点全局唯一 ID
+	TenantID     uint64 // 租户（隔离键）
+	FileID       uint64 // 文档 ID
+	Scope        string // scope=public/private（可见性平面）
+	OwnerUserID  uint64 // owner_user_id：private 库为归属用户，public 库为 0
+	VersionMd5   string // 版本
+	ChunkIndex   int    // 切片序号
+	Content      string // 切片原文（检索直接返回）
+	ChapterTitle string // 章节标题
+	Latest       bool   // 是否最新版本（检索过滤键）
 	Vector       []float32
 }
 
@@ -77,7 +82,7 @@ func toPointStruct(v QdrantVector) (*qdrant.PointStruct, error) {
 		"tenant_id":   int64(v.TenantID),
 		"file_id":     int64(v.FileID),
 		"chunk_index": int64(v.ChunkIndex),
-		"pt_scope":    scopeCode(v.Scope),  // 0=public, 1=private，可见性过滤
+		"pt_scope":    scopeCode(v.Scope),   // 0=public, 1=private，可见性过滤
 		"pt_owner":    int64(v.OwnerUserID), // private 归属用户；public 为 0
 	}
 	for k, val := range intVals {
@@ -215,7 +220,7 @@ func intsFieldCond(key string, vals []uint64) *qdrant.Condition {
 		ids[i] = int64(v)
 	}
 	return &qdrant.Condition{ConditionOneOf: &qdrant.Condition_Field{Field: &qdrant.FieldCondition{
-		Key: key,
+		Key:   key,
 		Match: &qdrant.Match{MatchValue: &qdrant.Match_Integers{Integers: &qdrant.RepeatedIntegers{Integers: ids}}},
 	}}}
 }
@@ -223,6 +228,10 @@ func intsFieldCond(key string, vals []uint64) *qdrant.Condition {
 // SearchVectors 检索：强制 tenant + latest，并按检索身份 ownerUserID 限定可见平面
 // （ownerUserID>0 时可见=公库 OR 本人私库；0=仅公库）；可选 fileIDs 进一步限定。
 func SearchVectors(ctx context.Context, query []float32, tenantID, ownerUserID uint64, topK int, fileIDs ...uint64) ([]QdrantSearchHit, error) {
+	if QdrantClient == nil {
+		// 基础设施未初始化：返回一个明确哨兵而非 nil 指针 panic，让上层(best-effort 治理等)做防御降级。
+		return nil, ErrQdrantNotReady
+	}
 	limit := uint64(topK)
 	req := &qdrant.QueryPoints{
 		CollectionName: collectionName(),
