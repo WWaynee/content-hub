@@ -80,6 +80,9 @@ export default function Workspaces() {
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createForm] = Form.useForm()
+  // P10：起稿方式。from_scratch=从零生成（默认，沿用原表单校验）；assist=自带草稿起稿（放宽需求单必填）
+  const [sourceKind, setSourceKind] = useState<'build_from_scratch' | 'draft_assist'>('build_from_scratch')
+  const [draftInput, setDraftInput] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -114,6 +117,8 @@ export default function Workspaces() {
   const openCreate = () => {
     createForm.resetFields()
     createForm.setFieldsValue({ platforms: [] })
+    setSourceKind('build_from_scratch')
+    setDraftInput('')
     setCreateOpen(true)
   }
 
@@ -123,9 +128,9 @@ export default function Workspaces() {
     try {
       await api.post('/workspaces', {
         title: v.title,
-        req_title: v.req_title,
+        req_title: sourceKind === 'draft_assist' && !v.req_title ? v.title : v.req_title,
         tags: (v.tags || []).filter((s: string) => s.trim()).map((s: string) => s.trim()),
-        platforms: v.platforms || [],
+        platforms: sourceKind === 'build_from_scratch' ? v.platforms || [] : v.platforms || [],
         style_tone: v.style_tone,
         style_emotion: v.style_emotion,
         style_audience: v.style_audience,
@@ -133,6 +138,8 @@ export default function Workspaces() {
         style_subject: v.style_subject,
         word_count: v.word_count ? Number(v.word_count) : 0,
         chapter_requirement: v.chapter_requirement,
+        source_kind: sourceKind,
+        draft_input: sourceKind === 'draft_assist' ? draftInput.trim() : '',
       })
       message.success('工作区已创建')
       setCreateOpen(false)
@@ -349,55 +356,94 @@ export default function Workspaces() {
           <Form.Item label="工作区标题" name="title" rules={[{ required: true, message: '请输入工作区标题' }]}>
             <Input placeholder="如：招生简章发布稿" />
           </Form.Item>
-          <Divider style={{ margin: '12px 0' }}>需求单初步内容</Divider>
-          <Form.Item label="需求单标题" name="req_title" rules={[{ required: true, message: '请输入需求单标题' }]}>
-            <Input placeholder="如：招生简章发布稿" />
+          <Form.Item label="起稿方式" style={{ marginBottom: 8 }}>
+            <Segmented
+              block
+              value={sourceKind}
+              onChange={(v) => {
+                setSourceKind(v as 'build_from_scratch' | 'draft_assist')
+                if (v === 'build_from_scratch') setDraftInput('')
+              }}
+              options={[
+                { label: '从零生成（填需求单）', value: 'build_from_scratch' },
+                { label: '我有初稿要整理', value: 'draft_assist' },
+              ]}
+            />
+            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>
+              {sourceKind === 'draft_assist'
+                ? 'P10：把你手上已有一份的同类稿子粘贴进来，系统会切分成句、逐句到知识库找可引依据（配得上→可溯源；配不上你又坚持的数据→以“用户草稿”黄点保留待你取舍），而不是把它当需求搜掉。'
+                : '填好需求单后点“生成稿件”，从零生成一篇有据可溯的新稿。'}
+            </Typography.Text>
           </Form.Item>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item label="标签" name="tags" extra="输入后回车添加，可多个；支持逗号智能分隔">
-              <Select
-                mode="tags"
-                placeholder="输入标签后回车添加（如：招生）"
-                tokenSeparators={[',', '，']}
-                options={[
-                  { label: '招生', value: '招生' },
-                  { label: '政策', value: '政策' },
-                  { label: '通知', value: '通知' },
-                  { label: '公告', value: '公告' },
-                  { label: '活动', value: '活动' },
-                  { label: '宣传', value: '宣传' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item label="发布平台" name="platforms" rules={[{ required: true, message: '请选择至少一个平台' }]}>
-              <Select mode="multiple" placeholder="选择发布平台" options={PLATFORMS.map((p) => ({ label: p, value: p }))} />
-            </Form.Item>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item label="基调" name="style_tone">
-              <Input placeholder="如：正式" />
-            </Form.Item>
-            <Form.Item label="感情色彩" name="style_emotion">
-              <Input placeholder="如：积极" />
-            </Form.Item>
-            <Form.Item label="目标受众" name="style_audience">
-              <Input placeholder="如：考生及家长" />
-            </Form.Item>
-            <Form.Item label="发文主体" name="style_subject">
-              <Input placeholder="如：学校" />
-            </Form.Item>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item label="字数要求" name="word_count">
-              <Input type="number" placeholder="如：800" />
-            </Form.Item>
-            <Form.Item label="章节要求" name="chapter_requirement">
-              <Input placeholder="如：含报名条件和录取规则" />
-            </Form.Item>
-          </div>
-          <Form.Item label="发文目的" name="style_purpose">
-            <Input placeholder="如：发布招生政策" />
-          </Form.Item>
+
+          {sourceKind === 'draft_assist' ? (
+            <>
+              <Form.Item
+                label="粘贴你的草稿正文" style={{ marginBottom: 8 }}
+                validateStatus={draftInput.trim() ? 'success' : undefined}
+                extra="可与知识库资料互相印证/补漏。粘贴后仍可回到详情页做句子级修改与来源标注。"
+              >
+                <Input.TextArea
+                  rows={7}
+                  value={draftInput}
+                  onChange={(e) => setDraftInput(e.target.value)}
+                  placeholder="把你已经写好的稿件/模板/往期范文原文粘到这里，例如：{换行换行}新年致辞 某单位2024年工作总结…"
+                />
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Divider style={{ margin: '12px 0' }}>需求单初步内容</Divider>
+              <Form.Item label="需求单标题" name="req_title" rules={[{ required: true, message: '请输入需求单标题' }]}>
+                <Input placeholder="如：招生简章发布稿" />
+              </Form.Item>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item label="标签" name="tags" extra="输入后回车添加，可多个；支持逗号智能分隔">
+                  <Select
+                    mode="tags"
+                    placeholder="输入标签后回车添加（如：招生）"
+                    tokenSeparators={[',', '，']}
+                    options={[
+                      { label: '招生', value: '招生' },
+                      { label: '政策', value: '政策' },
+                      { label: '通知', value: '通知' },
+                      { label: '公告', value: '公告' },
+                      { label: '活动', value: '活动' },
+                      { label: '宣传', value: '宣传' },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item label="发布平台" name="platforms" rules={[{ required: true, message: '请选择至少一个平台' }]}>
+                  <Select mode="multiple" placeholder="选择发布平台" options={PLATFORMS.map((p) => ({ label: p, value: p }))} />
+                </Form.Item>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item label="基调" name="style_tone">
+                  <Input placeholder="如：正式" />
+                </Form.Item>
+                <Form.Item label="感情色彩" name="style_emotion">
+                  <Input placeholder="如：积极" />
+                </Form.Item>
+                <Form.Item label="目标受众" name="style_audience">
+                  <Input placeholder="如：考生及家长" />
+                </Form.Item>
+                <Form.Item label="发文主体" name="style_subject">
+                  <Input placeholder="如：学校" />
+                </Form.Item>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item label="字数要求" name="word_count">
+                  <Input type="number" placeholder="如：800" />
+                </Form.Item>
+                <Form.Item label="章节要求" name="chapter_requirement">
+                  <Input placeholder="如：含报名条件和录取规则" />
+                </Form.Item>
+              </div>
+              <Form.Item label="发文目的" name="style_purpose">
+                <Input placeholder="如：发布招生政策" />
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </div>

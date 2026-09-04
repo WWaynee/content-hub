@@ -16,17 +16,20 @@ import (
 
 // RequirementInput 创建工作区时附带的需求单初步内容。
 type RequirementInput struct {
-	Title               string
-	Tags                []string
-	Platforms           []string
-	StyleTone           string
-	StyleEmotion        string
-	StyleAudience       string
-	StylePurpose        string
-	StyleTaboo          string
-	StyleSubject        string
-	WordCount           int
-	ChapterRequirement  string
+	Title              string
+	Tags               []string
+	Platforms          []string
+	StyleTone          string
+	StyleEmotion       string
+	StyleAudience      string
+	StylePurpose       string
+	StyleTaboo         string
+	StyleSubject       string
+	WordCount          int
+	ChapterRequirement string
+	// P10 draft_assist：起稿来源 + 用户粘贴的草稿原文（draft_assist 必填草稿，从零路径忽略）。
+	SourceKind string
+	DraftInput string
 }
 
 // ErrRequirementIncomplete 需求单初步内容不完整。
@@ -81,6 +84,8 @@ func CreateWorkspace(ctx context.Context, tenantID, ownerUserID uint64, title st
 		r.StyleSubject = reqIn.StyleSubject
 		r.WordCount = reqIn.WordCount
 		r.ChapterRequirement = reqIn.ChapterRequirement
+		r.SourceKind = reqIn.SourceKind
+		r.DraftInput = reqIn.DraftInput
 	}
 
 	err := storage.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {

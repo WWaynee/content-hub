@@ -113,6 +113,29 @@ export default function WorkspaceDetail() {
     }
   }
 
+  // P10 draft_assist：从用户粘贴的草稿起稿（切分→逐句找可引依据→落首版）。
+  const [draftAssisting, setDraftAssisting] = useState(false)
+  const [draftText, setDraftText] = useState('')
+  const generateFromDraftAssist = async () => {
+    const text = draftText.trim()
+    if (!text && !(req?.draft_input ?? '').trim()) {
+      message.warning('请先粘贴你的草稿正文（或先在需求单中填草稿）')
+      return
+    }
+    setDraftAssisting(true)
+    try {
+      const r: any = await api.post(`/workspaces/${wid}/draft-assist`, { text })
+      message.info(r?.human_text || '已从草稿整理成新稿')
+      await loadArticle()
+      await loadReq()
+    } catch (e: any) {
+      message.error('从草稿起稿失败: ' + (e.message || ''))
+      await loadReq()
+    } finally {
+      setDraftAssisting(false)
+    }
+  }
+
   const doExport = async () => {
     if (!article) return
     const r = (await api.get(`/articles/${article.article_version_id}/export`)) as any
@@ -246,6 +269,34 @@ export default function WorkspaceDetail() {
             article={article}
             onCommitted={loadArticle}
           />
+        </div>
+      ) : req?.source_kind === 'draft_assist' ? (
+        <div style={{ maxWidth: 640 }}>
+          <Typography.Paragraph type="secondary">
+            这个工作区是「拿已有初稿整理」类型：把你有的一份同类稿子粘进来，系统会切成句子、逐句到知识库找可引依据——
+            能配上就标为可溯源；配上不了、又是你坚持要保留的数据/措辞，会以“用户草稿·待复核”黄点保留，不会再把它当需求搜掉。
+            落稿后你仍可在下方句子面板里逐句受控修改与取舍。
+          </Typography.Paragraph>
+          <Form.Item
+            label="草稿正文"
+            validateStatus={draftText.trim() || (req?.draft_input ?? '').trim() ? 'success' : undefined}
+            extra="系统会把草稿切成完整句，逐句与已勾选/可访问的知识库资料比对。"
+          >
+            <Input.TextArea
+              rows={8}
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              placeholder={req?.draft_input?.trim() ? '（已保存过草稿，可直接点击下方起稿；此处可改后覆盖）先用知识库帮我整理这份：' : '粘贴你的草稿：'}
+            />
+          </Form.Item>
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            loading={draftAssisting}
+            onClick={generateFromDraftAssist}
+          >
+            从这份草稿整理成稿
+          </Button>
         </div>
       ) : (
         <Typography.Text type="secondary">

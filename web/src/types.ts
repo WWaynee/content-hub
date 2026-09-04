@@ -42,6 +42,10 @@ export interface Requirement {
   word_count: number
   chapter_requirement: string
   version: number
+  /** P10：起稿方式；draft_assist=粘贴用户自带草稿起稿，默认 build_from_scratch。 */
+  source_kind?: 'build_from_scratch' | 'draft_assist' | string
+  /** P10：draft_assist 模式保存的用户草稿原文。 */
+  draft_input?: string
 }
 
 export interface KbaseDir {

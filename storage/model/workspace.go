@@ -38,8 +38,12 @@ type Requirement struct {
 	WordCount          int            `gorm:"column:word_count;default:0" json:"word_count"`
 	ChapterRequirement string         `gorm:"column:chapter_requirement;type:text" json:"chapter_requirement"`
 	Version            int            `gorm:"column:version;not null;default:1" json:"version"`
-	CreatedAt          time.Time      `gorm:"column:created_at;type:datetime(3)" json:"created_at"`
-	UpdatedAt          time.Time      `gorm:"column:updated_at;type:datetime(3)" json:"updated_at"`
+	// P10 draft_assist：起稿来源。build_from_scratch=从需求单从零生成；draft_assist=贴用户自带草稿起稿。
+	SourceKind string `gorm:"column:source_kind;size:32;not null;default:'build_from_scratch'" json:"source_kind"`
+	// DraftInput draft_assist 模式用户粘贴的原始草稿文本（非 KBase 素材；留存以便重跑起稿/审计）。
+	DraftInput string    `gorm:"column:draft_input;type:longtext" json:"draft_input,omitempty"`
+	CreatedAt  time.Time `gorm:"column:created_at;type:datetime(3)" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"column:updated_at;type:datetime(3)" json:"updated_at"`
 }
 
 func (Requirement) TableName() string { return "requirements" }

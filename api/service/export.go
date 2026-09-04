@@ -58,11 +58,18 @@ func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error)
 			continue // 无绑定句不进证据清单
 		}
 		srcs := sourceBySent[s.ID]
-		if len(srcs) == 0 {
-			continue // 孤儿绑定(引用文档被物理清理)在清单中如实略过，不强编
+		// P10：user_draft 占位行（doc=0，用户草稿里"该有据却拿不到"的断言）装配层读不到真 source，
+		// 但必须在导出清单中如实标出"来源：用户草稿（无外部依据）"，与 knowledge 区分，交审单人核对。
+		userDraftFlag := firstUserDraftPlaceholder(bs)
+		if len(srcs) == 0 && userDraftFlag == "" {
+			continue // 其余孤儿绑定/占位在清单中如实略过，不强编
 		}
 		hasEvidence = true
 		sb.WriteString(fmt.Sprintf("【句子】%s\n", s.Content))
+		if userDraftFlag != "" {
+			sb.WriteString("  - 来源：用户草稿（无外部依据·待人工复核）\n")
+			sb.WriteString("    说明：" + userDraftFlag + "\n")
+		}
 		for _, src := range srcs {
 			sb.WriteString(fmt.Sprintf("  - 来源文档：%s\n", docSourceLabel(src)))
 			sb.WriteString(fmt.Sprintf("    原文：%s\n", src.SourceText))
@@ -78,6 +85,24 @@ func ExportArticle(ctx context.Context, articleVersionID uint64) (string, error)
 		sb.WriteString("（无证据）\n")
 	}
 	return sb.String(), nil
+}
+
+// firstUserDraftPlaceholder 若该句绑定中存在 P10 落库的 user_draft 占位（doc=0，
+// evidence_status ∈ no_source/human_kept），返回一句可读说明（否则空串）。
+// 注意：装配层 LoadSentenceSources 对 doc_sentence_id=0 的绑定一律跳过，因此这里直接从 binding 判断。
+func firstUserDraftPlaceholder(bs []model.EvidenceBinding) string {
+	for _, b := range bs {
+		if b.DocSentenceID != 0 || b.SourceType != "user_draft" {
+			continue
+		}
+		switch b.EvidenceStatus {
+		case ClaimTypeNoSource:
+			return "这句话是你草稿中带数据/事实断言的表述，当前知识库没有可引原文支撑，导出前请人工复核（可补资料或删除）"
+		case ClaimTypeHumanKept:
+			return "这句话是你草稿中的表述，经确认不依赖外部依据"
+		}
+	}
+	return ""
 }
 
 // docSourceLabel 生成导出/清单中"来源文档"一行人读标注：文件名（或文档 id 兜底）+ 章节 + 原文版本号。
