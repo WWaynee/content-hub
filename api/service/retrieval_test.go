@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/observability"
 	"github.com/WWaynee/content-hub/storage"
 )
 
@@ -49,8 +50,9 @@ func TestRetrievalBatchLifecycle(t *testing.T) {
 	}
 	req, _ := storage.GetRequirementByWorkspace(ctx, tenantID, w.ID)
 
-	// 3. 检索（句子级展开）
-	hits, err := SearchKbaseSentences(ctx, tenantID, "春节假期安排")
+	// 3. 检索（句子级展开）：这份是私库(owner=1)文档，须以 owner=1 身份检索才能在可见平面命中（P01）。
+	sctx := observability.WithTenantUser(ctx, tenantID, 1)
+	hits, err := SearchKbaseSentences(sctx, tenantID, "春节假期安排")
 	if err != nil {
 		t.Fatalf("SearchKbaseSentences 失败: %v", err)
 	}

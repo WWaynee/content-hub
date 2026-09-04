@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/observability"
 	"github.com/WWaynee/content-hub/splitter"
 	"github.com/WWaynee/content-hub/storage"
 )
@@ -78,8 +79,9 @@ func TestIngestAndSearch(t *testing.T) {
 		t.Fatalf("应返回 fileID/versionID")
 	}
 
-	// 检索
-	evs, err := SearchKbase(ctx, tenantID, "报名条件是什么")
+	// 检索：此文档为私库(owner=1)内容，须以该 owner 身份检索才能在可见平面内命中（P01）。
+	sctx := observability.WithTenantUser(ctx, tenantID, 1)
+	evs, err := SearchKbase(sctx, tenantID, "报名条件是什么")
 	if err != nil {
 		t.Fatalf("SearchKbase 失败: %v", err)
 	}

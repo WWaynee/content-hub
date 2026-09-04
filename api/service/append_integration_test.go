@@ -8,6 +8,7 @@ import (
 
 	"github.com/WWaynee/content-hub/agent"
 	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/observability"
 	"github.com/WWaynee/content-hub/storage"
 )
 
@@ -31,6 +32,9 @@ func TestAppendArticleContent(t *testing.T) {
 	}
 	ctx := context.Background()
 	tenantID := uint64(99992030)
+	// 全文以文档 owner=1 身份跑：IngestAndParse 建私库文档、AppendArticleContent 内部检索该私库补证都
+	// 需在同一可见身份下才能命中（否则检索只见公库→0 命中→间歇性红，同 P01 字面 plane 根因）。
+	ctx = observability.WithTenantUser(ctx, tenantID, 1)
 
 	// 上传资料
 	content := "# 放假通知\n\n假期为2月15日至2月23日，共9天。\n各科室安排值班人员在岗。"
