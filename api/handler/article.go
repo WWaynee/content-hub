@@ -394,3 +394,34 @@ func HandleArticleSentenceMark(c *gin.Context) {
 	}
 	response.SuccessMessage(c, "已更新该句的源标注", nil)
 }
+
+// governBody POST 治理一句待核的手编文本（P09 治理补足）。
+type governBody struct {
+	Text string `json:"text"`
+}
+
+// HandleManualGovern 对一句新插入/改写的手编文本跑治理，返回 bound/no_source/plausible 三态结论及其可引来源。
+func HandleManualGovern(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	wid, err := parseID(c.Param("workspace_id"))
+	if err != nil {
+		response.BadRequest(c, "无效工作区 ID")
+		return
+	}
+	var body governBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数解析失败："+err.Error())
+		return
+	}
+	res, gerr := service.GovernManualSentence(c.Request.Context(), tenantID, wid, body.Text)
+	if gerr != nil {
+		response.ServerError(c, "治理失败："+gerr.Error())
+		return
+	}
+	response.Success(c, gin.H{
+		"claim_type": res.ClaimType,
+		"sources":    res.Sources,
+		"human_text": res.HumanText,
+		"fallback":   res.Fallback,
+	})
+}

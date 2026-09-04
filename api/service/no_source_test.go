@@ -70,3 +70,26 @@ func TestSequence_InsertMarksUnsourcedHelper(t *testing.T) {
 	}
 	t.Fatal("未找到插入句")
 }
+
+// 治理把"纯措辞"判定为大概率(AvoidNoSource)时，新句不应落 no_source 黄点。
+func TestChangePlan_AvoidNoSourceKeepsPlausible(t *testing.T) {
+	src, bind := mkSrcSet()
+	p, err := applyChangePlan(src, bind, &ChangeListRequest{Ops: []ChangeOp{
+		{Op: "insert", AnchorID: 2, NewText: "我们要坚持从严管理，杜绝松懈。", AvoidNoSource: true},
+	}}, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range p.sents {
+		if s.content == "我们要坚持从严管理，杜绝松懈。" {
+			if s.unsourced {
+				t.Errorf("纯措辞(AvoidNoSource)不应被标 no_source")
+			}
+			if len(p.reviews) != 0 {
+				t.Errorf("纯措辞不应产出 no_source 提醒, got %v", p.reviews)
+			}
+			return
+		}
+	}
+	t.Fatal("未找到新句")
+}

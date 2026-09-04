@@ -74,6 +74,9 @@ type ChangeOp struct {
 	Evidence []ChangeEvidence `json:"evidence,omitempty"`
 	// ClearEvidence（仅编辑用）为 true 且未给 Evidence → 显式清空该句证据（改文后原来源不再可信）。
 	ClearEvidence bool `json:"clear_evidence,omitempty"`
+	// AvoidNoSource（P09 治理：纯措辞/衔接句、无需外部依据）为 true 时即便无任何证据也不落 no_source(黄点)，
+	// 以 plausible 保留——避免把"没有新事实要说"误标成"该有据却没据"。
+	AvoidNoSource bool `json:"avoid_no_source,omitempty"`
 }
 
 // ChangeListRequest 一次受控序列编辑的完整请求（change_list）。
@@ -219,10 +222,14 @@ func applyChangePlan(src []model.ArticleSentence, bindBySent map[uint64][]model.
 				sec: an.sec, para: an.para,
 				binds: buildEntryBinds(op.Evidence, tenantID),
 			}
-			// P09：带不出可引证据的新句 → 落 no_source 占位供黄点，正文不回退、不闷声放行。
+			// P09：带不出可引证据的新句默认标 no_source(黄点)；若治理判定这是无需据的纯措辞(AvoidNoSource)则不黄。
 			if len(ins.binds) == 0 {
-				ins.unsourced = true
-				reviews = append(reviews, fmt.Sprintf("新增句“%s”暂无外部来源，请核对是否需补依据(no_source 待核)", truncateForReview(t)))
+				if op.AvoidNoSource {
+					ins.unsourced = false
+				} else {
+					ins.unsourced = true
+					reviews = append(reviews, fmt.Sprintf("新增句“%s”暂无外部来源，请核对是否需补依据(no_source 待核)", truncateForReview(t)))
+				}
 			}
 			// 把新句放到 anchor 之后
 			wise = append(wise[:ai+1], append([]seqSentence{ins}, wise[ai+1:]...)...)

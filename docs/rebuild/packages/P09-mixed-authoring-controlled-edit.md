@@ -85,3 +85,18 @@
 3. **来源缺失 = 一张待做的黄色表,而不是一道不可完成的禁令**：给不出外部依据的新内容照常被正文保留,但落一个 `no_source` 的显式占位;作者届时可选「认可保留(不再黄,承认自有内容)」/「删除」/「去补资料(通向正文来源管线)」,系统绝不替他夹断。
 4. **UI 只给人能懂的话**：黄点、tooltip、三个明文的动作;执行后反馈是"一句人话结果",不是把内部状态/失败原样怼给普通办公用户。
 5. **边界诚实**：真正的"它有没有数据断言、要不要逐断言去 LLM/Rule 治理 + Guardian 轮询补料 (P06/P07)、以及外部草稿直接并入(P10)"是和本条相辅相成的进阶——P09 先把"人在稿上改 + 系统如实站立场"的那一地基闭合。
+
+---
+
+## ✅ P09 · 治理补足（把"手编句"接进 P07 真校验链）
+
+> 前一轮把治理做成"确定性占位＋作者拍板"；为回应"既然有 RuleVerifier/Guardian，为何手编不做真校验"，现补一条轻链：
+> **保存一句新/改写文本前，先跑一次真校验 → bound / no_source / plausible 三态再组 op 落库。**
+- 后端新 `api/service/manual_govern.go::GovernManualSentence`：取该工作区引用范围 → `SearchKbaseSentences` 拉候选 → `agentcensor.FactVerifier.Check`（LLM 只做"拆断言"，supports 交给 P07 Rule/近义判，不采自报布尔）→ 归三态：
+  - 有断言且给得出可引 `supported`（带 EvidenceIdx）→ **bound**，并把 sources 传回 op.Evidence；
+  - 有断言但规则＋近义都拿不出可引 → **no_source**（黄点,作者三选，正文保留）；
+  - 无数据/事实断言（纯措辞/衔接）→ **plausible**（不给证据也不标黄,`AvoidNoSource`）。
+  - 链路连不上(离线/服务未配)→ 保守 fallback：按 no_source 保留并给一句人话；不会把无据内容偷偷当有据、也不在链路失败上夹断用户。
+  - 边界如实说明：每句新文本用一轮"检索+Full Check"，不额外再跑 Guardian 的多轮换 query/ask_human 编排——那更适合同句有多个值得单独追问的原子断言(P06 claim)；本条做到"与新文本结对的可引证据 + 是否属纯措辞"的真判定,且可回放在后续嵌入 run step,不走死循环/不弹底层工具名。
+- 前端 `ArticleSentencesBoard`：改一句/后插一句提交前先 `POST /article/govern` 拿 claim；按 bound(带 evidence) / plausible(avoid_no_source=纯措辞不黄) / no_source(照旧黄) 组织 op → 再 PATCH sequence。
+- model/sequence：`ChangeOp.AvoidNoSource`；plan 对"无证据但 AvoidNoSource"的新句不落 no_source（plausible）。纯单测 `TestChangePlan_AvoidNoSourceKeepsPlausible` 通过；`go vet`/`go build ./...`/`web tsc` 0 错。

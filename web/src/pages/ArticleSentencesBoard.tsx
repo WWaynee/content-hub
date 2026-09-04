@@ -81,13 +81,36 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
     }
   }
 
+  async function governClaim(text: string): Promise<{ ev: any[]; avoid: boolean }> {
+    try {
+      const r: any = await api.post(`/workspaces/${wid}/article/govern`, { text })
+      const ct: string | undefined = r && r.claim_type
+      if (ct === 'bound') {
+        const ev = (r.sources as any[]).map((s) => ({
+          file_id: s.file_id,
+          doc_sentence_id: s.doc_sentence_id,
+          source_type: s.source_type || 'knowledge',
+        }))
+        return { ev, avoid: false }
+      }
+      if (ct === 'plausible') {
+        return { ev: [], avoid: true }
+      }
+      return { ev: [], avoid: false } // no_source / fallback → 交给黄点，不回退
+    } catch {
+      return { ev: [], avoid: false }
+    }
+  }
+
   const saveEdit = async (rowId: number) => {
     if (!draft.trim()) return
     await bump(async () => {
-      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, {
-        ops: [{ op: 'edit', target_sentence_id: rowId, new_text: draft.trim() }],
-      })
-      message.info(r?.human_text || '已保存这句修改')
+      const g = await governClaim(draft.trim())
+      const op: any = { op: 'edit', target_sentence_id: rowId, new_text: draft.trim() }
+      if (g.avoid) op.avoid_no_source = true
+      if (g.ev.length) op.evidence = g.ev
+      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, { ops: [op] })
+      message.info(r?.human_text || '已把改动保存')
       setEditingId(0)
       setDraft('')
     })
@@ -97,10 +120,12 @@ export default function ArticleSentencesBoard({ wid, article, onCommitted }: {
     const t = insertText.trim()
     if (!t) return
     await bump(async () => {
-      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, {
-        ops: [{ op: 'insert', anchor_sentence_id: anchorId, new_text: t }],
-      })
-      message.info(r?.human_text || '已插入一句（若无外部依据会给黄点提示）')
+      const g = await governClaim(t)
+      const op: any = { op: 'insert', anchor_sentence_id: anchorId, new_text: t }
+      if (g.avoid) op.avoid_no_source = true
+      if (g.ev.length) op.evidence = g.ev
+      const r: any = await api.patch(`/workspaces/${wid}/article/sequence`, { ops: [op] })
+      message.info(r?.human_text || '已插入一句')
       setInsertAfterId(0)
       setInsertText('')
     })
