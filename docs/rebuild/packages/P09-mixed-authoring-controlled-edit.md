@@ -116,3 +116,21 @@
 - 句头加 `#序号` 便于在长稿里指认/校对在哪一句；`govern`+`move`/`delete` 复用在同一 run 的 op 批，页面 reload 即见新版本。
 - **验证**：go vet/go build(后端)、`go test ./api/service` 全绿、既有 `TestSequenceEdit_EndToEndWithCAS`(真 MySQL)不回退；
   前端 `npx tsc -b` 0 错、`npm run lint` 0 error(仓库原有 8 条 set-state-in-effect warning 未涉新增)。
+
+---
+
+## ✅ P09 · 打磨三：治理“三态”真机正向验证已打通（LLM + Qdrant + OSS 在线） + 检索健壮性
+
+> 说明：这里是“治理是否真的在线跑、而不是靠离线兜底糊弄”的最后一层证明。
+- **手动正向验证（脚本化，不占用仓库）**：本机起 MySQL/Qdrant/Redis(+OGS)，
+  用 `service.IngestAndParse(scope=public)` 把一句含原文的知识库 txt 真上传+切分+Embedding+Qdrant 索引，
+  再在**同一租户**对断言句调 `GovernManualSentence` → **claim=bound, fallback=false, 命中可引 doc_sentence**。
+  结果（临时 probe，已清理不入库）记录了 file=257 / version=73 / doc_sentence=856，
+  治理 `#Sources=1`，可引 type=knowledge，human_text 提示“已找到 1 处知识库可引来源、可作有据句”。
+  同一断言句在空库租户两次均为 `no_source`(黄,非接管)；纯措辞句为 `plausible`——三态真链路闭环，
+  `fallback` 字段为 false 说明每次都是真检索+LLM(FactVerifier 拆断言)+RuleVerifier 判真，不是离线兜底。
+- **顺带修复的健壮性**（`storage/qdrant.go`）：检索客户端未初始化时曾对 nil 客户端 panic,
+  破坏治理“best-effort、外部不可用也不崩”的承诺 → 返回 `ErrQdrantNotReady` 哨兵，治理在检索未就绪时优雅降级到 no_source 待核（不崩、不谎称有据）。含单测
+  `TestSearchVectors_NotReadySentinel`（commit 7904b9d）。
+- **可复现方式**（想真机再跑一遍）：起中间件 → 用小脚本调用 `IngestAndParse` 上传一句原文 →
+  对语义重叠的断言句 `GovernManualSentence` 断言 claim_type==bound。
