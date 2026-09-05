@@ -62,6 +62,12 @@ type FactCheckResult struct {
 	UnsupportedTexts []string
 }
 
+// maxSentencesPerCheckCall 单次"断言提取 LLM 调用"最多承载的句子数。
+// 事实校验需用"全量证据"判定每条断言的支撑性，不能切证据；但把大稿的
+// 句子一次性全塞进单个推理请求会随句子+证据规模放大到超时。这里按句分批，
+// 每批仍携带全量证据，避免单次请求过大又保正确性（P07 批次间相互独立）。
+const maxSentencesPerCheckCall = 40
+
 // Check 提取稿件全部数据断言并核对证据覆盖。
 // flatSentences：整篇稿件按顺序平铺的句子文本（与 evidence 数组对应）。
 //
@@ -69,50 +75,21 @@ type FactCheckResult struct {
 // 仅规则 LowConf(疑似纯语义同义)才降级一次 LLM 近义，且 near-match 命中才 supported(带 idx)。
 // 无法拿出可引证据的断言一律记为不支撑(Blocked)，绝不静默放行。
 func (v *FactVerifier) Check(ctx context.Context, flatSentences []string, evidence []agent.Evidence) (*FactCheckResult, error) {
-	if len(flatSentences) == 0 {
-		return &FactCheckResult{}, nil
-	}
-	prompt := buildVerifyPrompt(flatSentences, evidence)
-	// 这一步走 LLM 的目的只是"拆出每个句子里的数据/事实断言文本"；下方 supported 不采信其自报布尔。
-	var out struct {
-		Sentences []struct {
-			Index        int              `json:"index"`
-			Text         string           `json:"text"`
-			HasDataAssertion bool         `json:"has_data_assertion"`
-			Assertions   []struct {
-				Text string `json:"text"`
-			} `json:"assertions"`
-		} `json:"sentences"`
-	}
-	if err := v.llm.ChatWithJSON(ctx, []llmclient.ChatMessage{{Role: "user", Content: prompt}}, &out); err != nil {
-		return nil, fmt.Errorf("事实断言提取失败: %w", err)
-	}
-
-	// 候选证据原文（顺序与 evidence 对齐）
 	srcTexts := make([]string, len(evidence))
 	for i, e := range evidence {
 		srcTexts[i] = e.SourceText
 	}
 	var rule verifier.Rule
-
 	res := &FactCheckResult{}
-	for _, raw := range out.Sentences {
-		sc := SentenceFactCheck{
-			Index:            raw.Index,
-			Text:             raw.Text,
-			HasDataAssertion: raw.HasDataAssertion,
+
+	for start := 0; start < len(flatSentences); start += maxSentencesPerCheckCall {
+		end := start + maxSentencesPerCheckCall
+		if end > len(flatSentences) {
+			end = len(flatSentences)
 		}
-		for _, a := range raw.Assertions {
-			if a.Text == "" {
-				continue
-			}
-			ac, err := decAssertion(ctx, v, rule, a.Text, srcTexts)
-			if err != nil {
-				return nil, err
-			}
-			sc.Assertions = append(sc.Assertions, ac)
+		if err := v.checkSentenceBatch(ctx, flatSentences[start:end], evidence, srcTexts, rule, start, res); err != nil {
+			return nil, err
 		}
-		res.Sentences = append(res.Sentences, sc)
 	}
 
 	// 汇总：凡有断言不支撑(或拿不到可引证据) → Blocked + 收起可读文本
@@ -129,6 +106,54 @@ func (v *FactVerifier) Check(ctx context.Context, flatSentences []string, eviden
 		}
 	}
 	return res, nil
+}
+
+// checkSentenceBatch 对一批句子做断言提取（一次 LLM 请求）+ 逐断言判定，结果并入 res。
+// sentences 只是本批要核对的句子（在整篇中的起始下标为 startIndex）；
+// evidence 始终传入全量——判定支撑性不能缺证据。
+func (v *FactVerifier) checkSentenceBatch(ctx context.Context,
+	sentences []string, evidence []agent.Evidence, srcTexts []string, rule verifier.Rule,
+	startIndex int, res *FactCheckResult) error {
+
+	if len(sentences) == 0 {
+		return nil
+	}
+	prompt := buildVerifyPrompt(sentences, evidence)
+	// 这一步走 LLM 的目的只是"拆出每个句子里的数据/事实断言文本"；下方 supported 不采信其自报布尔。
+	var out struct {
+		Sentences []struct {
+			Index            int    `json:"index"`
+			Text             string `json:"text"`
+			HasDataAssertion bool   `json:"has_data_assertion"`
+			Assertions       []struct {
+				Text string `json:"text"`
+			} `json:"assertions"`
+		} `json:"sentences"`
+	}
+	if err := v.llm.ChatWithJSON(ctx, []llmclient.ChatMessage{{Role: "user", Content: prompt}}, &out); err != nil {
+		return fmt.Errorf("事实断言提取失败: %w", err)
+	}
+	for _, raw := range out.Sentences {
+		sc := SentenceFactCheck{
+			// buildVerifyPrompt 对本批从 0 起编号，这里加回整篇起始下标得到全局编号，
+			// 供 applyFactRefs 用全局句序对齐句 → 证据绑定。
+			Index:            startIndex + raw.Index,
+			Text:             raw.Text,
+			HasDataAssertion: raw.HasDataAssertion,
+		}
+		for _, a := range raw.Assertions {
+			if a.Text == "" {
+				continue
+			}
+			ac, err := decAssertion(ctx, v, rule, a.Text, srcTexts)
+			if err != nil {
+				return err
+			}
+			sc.Assertions = append(sc.Assertions, ac)
+		}
+		res.Sentences = append(res.Sentences, sc)
+	}
+	return nil
 }
 
 // decAssertion 对单条断言做规则优先的 supported/非 supported 判定；LowConf 再降级 LLM 近义兜底。

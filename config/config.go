@@ -177,7 +177,7 @@ func Load() (*Config, error) {
 		APIKey:         envStr("LLM_API_KEY", ""),
 		BaseURL:        envStr("LLM_BASE_URL", "https://api.deepseek.com"),
 		ChatModel:      envStr("LLM_CHAT_MODEL", "deepseek-v4-flash"),
-		TimeoutSeconds: envIntDefault("LLM_TIMEOUT_SECONDS", 60),
+		TimeoutSeconds: envIntDefault("LLM_TIMEOUT_SECONDS", 120),
 		MaxRetry:       envIntDefault("LLM_MAX_RETRY", 3),
 	}
 
