@@ -5,9 +5,11 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/WWaynee/content-hub/config"
 	"github.com/WWaynee/content-hub/storage"
@@ -28,12 +30,17 @@ func TestWorkspaceEndpointsE2E(t *testing.T) {
 
 	r := NewRouter()
 
-	// 注册租户拿 token
-	regBody := []byte(`{"name":"ws测试租户","admin_name":"wsadmin","admin_passwd":"pass123456"}`)
+	// 每次运行使用带时间戳的唯一租户名，避免失败残留导致 next 运行“租户名已存在”而不可重复。
+	name := fmt.Sprintf("wse2e_%d", time.Now().UnixNano())
+	regBody, _ := json.Marshal(map[string]string{
+		"name": name, "admin_name": fmt.Sprintf("wsadmin_%d", time.Now().UnixNano()),
+		"admin_passwd": "pass123456",
+	})
 	token := registerAndGetToken(t, r, regBody)
 
-	// 新建工作区
-	doTrack(t, r, "POST", "/api/workspaces", token, `{"title":"测试工作区"}`)
+	// 新建工作区（build_from_scratch 需满足需求单初步内容：需求单标题+发布平台+风格/字数/章节之一，见 P10）
+	doTrack(t, r, "POST", "/api/workspaces", token,
+		`{"title":"测试工作区","req_title":"需求标题","platforms":["官网"],"style_tone":"正式"}`)
 
 	// 列表
 	listRes := doTrack(t, r, "GET", "/api/workspaces", token, "")
@@ -48,7 +55,7 @@ func TestWorkspaceEndpointsE2E(t *testing.T) {
 	}
 
 	// 清理
-	cleanupWS(t)
+	cleanupWS(t, name)
 }
 
 func registerAndGetToken(t *testing.T, r http.Handler, body []byte) string {
@@ -83,10 +90,10 @@ func doTrack(t *testing.T, r http.Handler, method, path, token, body string) []b
 	return w.Body.Bytes()
 }
 
-func cleanupWS(t *testing.T) {
+func cleanupWS(t *testing.T, name string) {
 	db := storage.GetDB()
-	db.Exec("DELETE FROM requirements WHERE tenant_id IN (SELECT id FROM tenants WHERE name='ws测试租户')")
-	db.Exec("DELETE FROM workspaces WHERE tenant_id IN (SELECT id FROM tenants WHERE name='ws测试租户')")
-	db.Exec("DELETE FROM users WHERE tenant_id IN (SELECT id FROM tenants WHERE name='ws测试租户')")
-	db.Exec("DELETE FROM tenants WHERE name='ws测试租户'")
+	db.Exec("DELETE FROM requirements WHERE tenant_id IN (SELECT id FROM tenants WHERE name=?)", name)
+	db.Exec("DELETE FROM workspaces WHERE tenant_id IN (SELECT id FROM tenants WHERE name=?)", name)
+	db.Exec("DELETE FROM users WHERE tenant_id IN (SELECT id FROM tenants WHERE name=?)", name)
+	db.Exec("DELETE FROM tenants WHERE name=?", name)
 }

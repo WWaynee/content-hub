@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isRequirementReady, requirementMissing, splitPlatforms, statusAliasLabel } from './guide'
+import {
+  isRequirementReady,
+  requirementMissing,
+  splitPlatforms,
+  statusAliasLabel,
+  requirementLikeFromCard,
+  cardStatusLabel,
+} from './guide'
 
 function anyContains(items: string[], sub: string): boolean {
   return items.some((x) => x.includes(sub))
@@ -11,6 +18,7 @@ describe('P12 · guide 纯函数单测', () => {
     expect(anyContains(requirementMissing({ title: '招生稿', platforms: [] }), '发布平台')).toBe(true)
     expect(anyContains(requirementMissing({ title: '招生稿', platforms: ['官网'] }), '发文风格')).toBe(true)
     expect(anyContains(requirementMissing({ title: '', platforms: ['官网'], word_count: 800 }), '标题')).toBe(true)
+    expect(anyContains(requirementMissing({ title: '  ', platforms: ['官网'], word_count: 800 }), '标题')).toBe(true)
     expect(isRequirementReady(null)).toBe(false)
     expect(isRequirementReady(undefined)).toBe(false)
   })
@@ -32,6 +40,28 @@ describe('P12 · guide 纯函数单测', () => {
     expect(statusAliasLabel('draft', true)).toBe('可生成')
     expect(statusAliasLabel('generated')).toBe('已生成')
     expect(statusAliasLabel('generating')).toBe('生成中')
-    expect(statusAliasLabel('failed')).toBe('需重试')
+    expect(statusAliasLabel('failed')).toBe('生成失败')
+  })
+
+  it('卡片需求解析：platforms 兼容 JSON 数组文本/逗号串，可生成派生供状态标签', () => {
+    // 后端列表返回 platforms 是 JSON 数组文本
+    expect(requirementLikeFromCard({ requirement_platforms: '["官网","公众号"]' }).platforms).toEqual(['官网', '公众号'])
+    // 逗号串兜底
+    expect(requirementLikeFromCard({ requirement_platforms: '官网,公众号' }).platforms).toEqual(['官网', '公众号'])
+    // 空/null → []
+    expect(requirementLikeFromCard({}).platforms).toEqual([])
+    // draft + 需求齐 → 可生成；需求缺平台 → 待填需求
+    expect(
+      cardStatusLabel({
+        status: 'draft',
+        requirement_title: '招生稿',
+        requirement_platforms: '["官网"]',
+        requirement_style_tone: '严谨',
+      }),
+    ).toBe('可生成')
+    expect(cardStatusLabel({ status: 'draft', requirement_title: '招生稿', requirement_platforms: '[]' })).toBe('待填需求')
+    // 非 draft 状态不参与派生
+    expect(cardStatusLabel({ status: 'generated' })).toBe('已生成')
+    expect(cardStatusLabel(undefined)).toBe('待填需求')
   })
 })

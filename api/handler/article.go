@@ -38,8 +38,8 @@ func GenerateArticle(c *gin.Context) {
 		return
 	}
 	// P12/W4：生成前先做“可生成”硬前置——缺需求项不真跑昂贵 LLM/检索，直接用人话列出还缺什么。
+	// 注意：此时尚未把状态置 generating（前置在状态变更之前），故不做任何状态回退，直接响应。
 	if miss := service.RequirementCompletenessIssues(req); len(miss) > 0 {
-		restoreWorkspaceStatus(c, wid, "")
 		response.Fail(c, response.CodeServerError,
 			"还不能生成稿件：需求单还缺："+strings.Join(miss, "、")+"。请先在需求单补齐后再点击生成。")
 		return

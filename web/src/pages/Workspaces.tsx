@@ -32,21 +32,23 @@ import {
 import api from '../api'
 import type { Workspace } from '../types'
 import { PLATFORMS } from '../types'
+import { cardStatusLabel, statusAliasLabel } from '../guide'
 
 // 需求(工作区)状态彩色映射 —— 醒目提示
 // 状态别名收敛：draft/needs_req 两个近义统一为「待填需求」（P12，避免卡片存在极少走到的 needs_req）。
-const STATUS_META: { value: string; label: string; color: string }[] = [
-  { value: 'draft', label: '待填需求', color: 'gold' },
-  { value: 'generating', label: '生成中', color: 'blue' },
-  { value: 'generated', label: '已生成', color: 'green' },
-  { value: 'revising', label: '修改中', color: 'geekblue' },
-  { value: 'failed', label: '生成失败', color: 'red' },
+// 文案单源到 guide.statusAliasLabel：这里只保留“内部 status → 颜色”，label 一律经别名函数派生。
+const STATUS_META: { value: string; color: string }[] = [
+  { value: 'draft', color: 'gold' },
+  { value: 'generating', color: 'blue' },
+  { value: 'generated', color: 'green' },
+  { value: 'revising', color: 'geekblue' },
+  { value: 'failed', color: 'red' },
 ]
 
-const STATUS_LABEL: Record<string, string> = Object.fromEntries(STATUS_META.map((s) => [s.value, s.label]))
 const STATUS_COLOR: Record<string, string> = Object.fromEntries(STATUS_META.map((s) => [s.value, s.color]))
 const STATUS_OPTIONS: CheckboxOptionType[] = STATUS_META.map((s) => ({
-  label: s.label,
+  // 筛选标签固定用“无 canGen 派生”的别名（待填需求/生成中/已生成/修改中/生成失败）。
+  label: statusAliasLabel(s.value, false),
   value: s.value,
 }))
 
@@ -271,7 +273,7 @@ export default function Workspaces() {
                 {/* 状态标签（左上醒目）+ 删除 */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                   <Tag color={STATUS_COLOR[w.status] || 'default'} style={{ fontWeight: 600 }}>
-                    {STATUS_LABEL[w.status] || w.status}
+                    {cardStatusLabel(w)}
                   </Tag>
                   <Button
                     danger

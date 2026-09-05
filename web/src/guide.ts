@@ -52,7 +52,8 @@ export function isRequirementReady(req: RequirementLike | null | undefined): boo
 }
 
 /** 工作区状态的“工话别名”，收敛内部 draft/needs_req 两个近义为“待填需求”。
- * readyOnly 仅在 status=draft/needs_req 时才用到：已填可生成 → “可生成”，否则“待填需求”。 */
+ * 仅 status=draft/needs_req 时 canGenerate 参与：已填可生成 → “可生成”，否则“待填需求”。
+ * 文案与列表筛选/卡片共用一个来源（STATUS_META 亦由此派生），避免两套不一致。 */
 export function statusAliasLabel(status: string, canGenerate = false): string {
   switch (status) {
     case 'generating':
@@ -62,11 +63,56 @@ export function statusAliasLabel(status: string, canGenerate = false): string {
     case 'revising':
       return '修改中'
     case 'failed':
-      return '需重试'
+      return '生成失败'
     case 'draft':
     case 'needs_req':
       return canGenerate ? '可生成' : '待填需求'
     default:
       return status || '待填需求'
   }
+}
+
+/** 列表卡片：从“工作区+需求单摘要”字段构造需求判别形状（platforms 为 JSON 文本时解析成数组）。 */
+export interface WorkspaceCard {
+  status?: string
+  requirement_title?: string
+  requirement_platforms?: string | null
+  requirement_word_count?: number
+  requirement_style_tone?: string
+  requirement_style_emotion?: string
+  requirement_style_audience?: string
+  requirement_style_purpose?: string
+  requirement_style_subject?: string
+  requirement_chapter_requirement?: string
+}
+
+/** 把列表卡片字段解析成 RequirementLike；platforms 兼容 JSON 数组文本/逗号串/空。 */
+export function requirementLikeFromCard(w: WorkspaceCard): RequirementLike {
+  let platforms: string[] | null = null
+  const raw = w?.requirement_platforms
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) platforms = parsed.map((x: unknown) => String(x))
+    } catch {
+      platforms = splitPlatforms(raw)
+    }
+  }
+  return {
+    title: w?.requirement_title ?? '',
+    platforms: platforms ?? [],
+    style_tone: w?.requirement_style_tone ?? '',
+    style_emotion: w?.requirement_style_emotion ?? '',
+    style_audience: w?.requirement_style_audience ?? '',
+    style_purpose: w?.requirement_style_purpose ?? '',
+    style_subject: w?.requirement_style_subject ?? '',
+    word_count: w?.requirement_word_count ?? 0,
+    chapter_requirement: w?.requirement_chapter_requirement ?? '',
+  }
+}
+
+/** 列表卡片状态别名（带“可生成/待填需求”派生）：draft 且需求已齐 → 可生成。 */
+export function cardStatusLabel(w: WorkspaceCard | null | undefined): string {
+  if (!w) return '待填需求'
+  return statusAliasLabel(w.status ?? '', isRequirementReady(requirementLikeFromCard(w)))
 }

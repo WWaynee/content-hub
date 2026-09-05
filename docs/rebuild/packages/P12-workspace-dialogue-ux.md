@@ -1,7 +1,7 @@
 # P12 · workspace/对话 UX：人话结果、可生成硬前置、状态机别名、动线收敛
 
 - RFC 出处：rev-4 §13.2/W2、§13.4/W4；rev-2 §9.4(动线)；README 顺序=P12
-- 状态：已完成（后端人话/debug + 硬前置 + 前端别名/向导/禁态均已落地，验收见文末）
+- 状态：已完成（重做，经逐条复核校正了前版缺漏：标题缺项未纳入硬前置、缺项误回退状态、human_text 重复带符号前缀、状态别名两套不一致/文案不同、失败建议一刀切；验收见文末）
 - 前置：P06（对话结果需要真动作反馈）；P05 可异步但 UX 不依赖；与 P11 互补
 - 目标：
   1. 对话动作结果不再把 `tool 名 + 底层 message` 原样怼给用户(W2)；
@@ -56,34 +56,44 @@
 
 ---
 
-## P12.1 落地与验收记录（本会话完成）
+## P12.x 落地与验收记录（重做 · 本会话逐条复核后）
 
-**后端**
-- `api/service/workspace.go`：新增 `RequirementCompletenessIssues(req)`——把“能否一键生成”收敛为 发布平台 + （风格/字数/章节至少其一），引用范围缺省=全部可访问允许；返回人话缺项清单（空=可生成）。
-- `api/handler/article.go::GenerateArticle`：生成前先做硬前置——缺项时不动 run/不落库/不真跑 LLM，直接响应“还缺：…”（W4 禁态到后端强约束）。
-- `api/service/dispatcher.go`：`ActionResult` 拆出 `HumanText`(人话)/`Debug`，保留 `Message` 内部文案；成功/失败句一律不给用户展示 tool 名（更新字段用中文“发文基调”等 `fieldCN`；失败给“能否换个说法或去对应板块”）。原有 unit 兼容。
-- 新单测 `api/service/workspace_ux_test.go`（纯单测，无外部）：
-  - `TestRequirementCompletenessIssues`：缺平台/缺规格/标题缺/具备→可生成共 5 场景；
-  - `TestHumanizeAction_NoToolLeak`：成功句与失败句都不泄漏 `update_requirement_field`/`style_tone` 等内部名。
+> 背景：本包此前标注“已完成”并有一份 P12.1 记录，但按 RFC rev-4 W2/W4 与本文档第 4 节逐条对照后发现 5 处名不符实，本会话**当作任务重做一遍**并逐一校正，全部以真环境复验。
 
-**前端**
-- 新纯逻辑模块 `web/src/guide.ts` + 单测 `guide.test.ts`：`requirementMissing`/`isRequirementReady`（判别与后端口径一致）、`splitPlatforms`、`statusAliasLabel`（收敛 draft/needs_req  为“待填需求”/“可生成”）。
-  - vitest 覆盖 4 组：缺项判定、字数/章节视为规格、逗号平台串、别名收敛。
-- `web/src/pages/WorkspaceDetail.tsx`：
-  - “可生成”派生 `canGen`；「生成稿件」在缺项时 **disabled + Tooltip 列出还缺项**（不误点、不在前端放空跑 LLM）；即使用户强点，前端先 warning、后端 Generate 也会硬拦，双护。
-  - 需求对话结果不再 `tool:xxx(mesg)`；改为「结果清单」逐条 `✓/✕ + human_text`（来自后端 HumanText），空 results(闲聊)给“这条我没动手，需要我改字段/加段落/补检索就说”。Divider 文案改成面向用户。
-  - 顶部新增 **三段横向向导步**：`1 填需求 → 2 生成稿件 → 3 看稿/导出`，按 `canGen`/是否有稿自动高亮并给出“下一步”（如“还缺发布平台”）。
-- `web/src/pages/Workspaces.tsx`：去掉几乎不走的 `needs_req` 选项；draft 卡片名从“草稿”改为“待填需求”（两个近义不再并存、筛选/标签与 enum 一致）。
+### 复核发现的前版缺漏（为何要重做）
+1. **标题缺项没进后端硬前置**：前端 `guide.requirementMissing` 把“标题”当缺项，后端 `RequirementCompletenessIssues` 却不查标题——前后端口径不一致（RFC W4 要求标题/平台必填），且文档谎称测试覆盖“标题缺”。
+2. **缺项分支误改动状态**：`GenerateArticle` 在缺项硬前置分支里调用 `restoreWorkspaceStatus(c, wid, "")`，实际此前从未把状态置过 generating，却被无脑强打回 `draft`——一个已有稿(`generated`)的工作区在缺项点生成会被错误打回 `draft`。
+3. **`humanizeAction` 成功句自带 `"✓ "` 前缀**，前端又渲染 `✓/✕` icon → 用户看到双重符号。
+4. **状态别名两套且文案不一致**：`guide.statusAliasLabel('failed')`="需重试" 但 `Workspaces STATUS_META`="生成失败"；列表卡片**永远显示“待填需求”**，从不出现“可生成”档（需求已齐备的 draft 卡片明明可生成）。
+5. 未知 tool 的 human 文案 `"执行 %q 这步操作"` 会把内部 tool 名拼给人看；失败建议四个 action 一刀切同一句模板。
 
-**验收（本会话实跑）**
-- `cd web && npm test`：guide *4 + ArticleReadableView *4 全绿（8 passed）。
-- `npx tsc -b`、`npm run lint`(0 error，8 均为既有告警)、`npx vite build` 均通过。
-- `go test ./... -count=1` 全绿（含新增 P12 单测）。
-- `go build ./...` 通过。
+### 后端改动
+- `api/service/workspace.go::RequirementCompletenessIssues`：**补上 `strings.TrimSpace(r.Title)=="" → "标题" 缺项**，口径与前端 guide 完全对齐（标题+平台必填；风格/字数/章节至少其一；引用缺省=全部可访问）。新增 `"strings"` import。
+- `api/handler/article.go::GenerateArticle`：缺项硬前置分支**移除 `restoreWorkspaceStatus(c, wid, "")`**——守卫在本置 generating 之前，绝不因一次“被拦下的空点生成”把已 generated 工作区打回 draft；并在注释里写明“不改状态”。
+- `api/service/dispatcher.go::humanizeAction`：
+  - 成功/失败句都**去掉前端才应该渲染的 `✓`/`✕` 前缀**（符号归前端，避免 `✓✓`）；
+  - 失败建议**按 action 区分**：改字段→“换直白说法/在表单里改”；补检索→“换关键词/先确认资料库范围”；追加/改句→“在逐句编辑面板手动”；
+  - 未知 tool 不再拼 `%q` 内部名，退回“换个说法描述需求”。
+- 测试 `api/service/workspace_ux_test.go`：补**标题缺/纯空格标题缺**两场景；扩 `TestHumanizeAction_NoToolLeak` 断言 human_text **不以 ✓/✕ 开头**、未知 tool 不泄漏内部名、检索失败建议提到“换关键词”。
+
+### 前端改动
+- `web/src/guide.ts`：
+  - `statusAliasLabel('failed')` 由“需重试”改为 **“生成失败”**（与列表一致）；
+  - 新增 `WorkspaceCard`/`requirementLikeFromCard`（列表返回的 platforms JSON 数组文本/逗号串 → 判别形状）与 `cardStatusLabel`（**draft 且需求齐 → “可生成”**），让卡片呈现带“可生成/待填需求”派生。
+- `web/src/pages/Workspaces.tsx`：**删除本地硬编码 `STATUS_META.label` 双源**，筛选/卡片标题一律收敛到 `guide.statusAliasLabel` / `cardStatusLabel` 单源；卡片状态从“恒待填需求”升级为“已齐 → 可生成”。
+- `web/src/guide.test.ts`：failed 文案改断言 + 新增“卡片需求解析/可生成派生”用例。
+- `api/workspace_e2e_test.go`（连带修复，既有不属 P12）：e2e 原本 POST 一个**裸 `{"title"}`**违反 P10 的初步内容校验必然被 400（HEAD 即红），且固定租户名/用户名在多轮/残留下互相冲突——改为**合法的完整 payload + 每次唯一租户/用户名**，使该 integration 可重复跑绿。
+
+### 验收（真环境实跑）
+- docker 起 MySQL/Redis/Qdrant/RabbitMQ；`go run ./cmd/migrate` 建表成功。
+- `go test ./... -count=1` **全绿**（含新增 P12 单测；连接真实 MySQL 的 coordinator/run/storage 等用例均实际跑过同一套库）。
+- `go test -tags=integration ./... -p 1`：**仅 `TestOrchestratorGenerate` 失败**——经 `git stash` 在干净 HEAD 上复测**同样失败**（真实 LLM+向量检索命中阈值的外部依赖问题，与本包改动无关、非本包引入的回归）；`api`(e2e 已修可重复)、`api/service`(含真 MySQL 集成) 等本包涉及的包全绿。
+- `go build ./...`、`go vet ./...` 均通过。
+- `cd web && npm test`：guide *5 + ArticleReadableView *4 = 9 passed；`npx tsc -b`、`npm run lint`(0 error，告警均为既有)、`npx vite build` 全通过。
 
 **局限 / 延续**
-- 无浏览器环境的走查留给本机：`npm run dev` 打开一个 draft 工作区确认向导步、禁态 tooltip、对话“人话结果”观感；纯逻辑与编译均已由上面覆盖。
-- “从一句话直出空需求生成”(skeleton) 维持 run 的 guard，默认不允许，如需试点另开 reviewflow。
+- 浏览器观感(smoke)留给本机人工；`TestOrchestratorGenerate` 为既有外部依赖 flaky，需独立跟进数据/阈值，不在 P12 范围内自修以避免越界引入新风险。
+- “从一句话直出空需求生成”(skeleton) 维持 run 的 guard，默认不允许。
 
 ---
 
@@ -93,7 +103,7 @@
 ### 原问题（触发）
 | 场景 | 旧实现 | 落地后 |
 |------|--------|--------|
-| 对话后 | `tool:update_requirement_field:成功(已更新 style_tone)` | `✓ 把你的要求写进需求单的「发文基调」`；失败给“换个说法/去对应板块” |
+| 对话后 | `tool:update_requirement_field:成功(已更新 style_tone)` | 前端 `✓/✕` icon + `把你的要求写进需求单的「发文基调」，已完成。`；失败给按动作区分的“换个说法/去表单或逐句编辑手动处理” |
 | 空/半需求点在生成 | 直接真跑昂贵 LLM/检索 | 按钮 disabled + Tooltip 缺项；后端 Generate 也前置硬校验拦下 |
 | 状态两个近义没人走出 | `draft`/`needs_req` 同在筛选却几乎不创建 | 列表只留语义收敛后的别名："待填需求/生成中/已生成/…" |
 | 我今天到这篇稿该干嘛 | 一堆入口无指引 | 顶部三段向导步 + 每段描述下一步 |
@@ -107,5 +117,5 @@
 ---
 
 ## ▣ 任务收口（本包交付口径）
-P12 已全部落地并交给自动层可确定性验收：后端 2 条新单测覆盖缺项判定与人话无泄漏；前端 guide 纯逻辑被 vitest 锁死（冗余收敛/可生成/分隔平台）；detail 接了“禁态+Tooltip+三段向导+对话人话清单”，workspaces 别名收敛。`go test ./...`、`go build`、`web npm test / tsc / lint / vite build` 全绿。浏览器观感(smoke)与从空需求一句话试点属后续/本地人工；needs_req 已不再在 UI 出现。UI 的下一步衔接(如点向导切页签/一键补齐缺项) 若产品需要可再 增 to P12.2。
+P12 重做后已落地并通过自动层 + 真环境验收：后端硬前置 `RequirementCompletenessIssues` 与前端 guide 口径钉死到**同一套判别（标题/平台必填 + 风格或字数或章节其一）**并被单测/vitest 锁死；生成守卫**缺项时不改动工作区状态、不真跑 LLM**（前端 disabled+Tooltip、后端强制，双护）；对话 human_text **不重复带符号、不泄漏 tool 名、失败按动作给建议**；状态别名**收敛到单个来源**且列表卡片派生“可生成/待填需求”。`go test ./...`、`go build`、`go vet`、`go test -tags=integration`(涉及本包的 api/api-service 等全绿)、`web npm test / tsc / lint / vite build` 全绿。遗留：`TestOrchestratorGenerate` 为既有外部依赖失败（干净 HEAD 同样失败，非本包问题）；浏览器观感 smoke 留本机人工。needs_req 已不在 UI 出现。UI 的下一步衔接(点向导切页签/一键补齐缺项) 若产品需要可再增 P12.2。
 

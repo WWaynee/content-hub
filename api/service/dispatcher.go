@@ -145,7 +145,8 @@ func fieldCN(f string) string {
 }
 
 // humanizeAction 把某个 action 的执行结果转成不暴露 tool 名的人话（W2）。
-// 同一措辞无论成败都用；成功补“已完成”，失败补“未能完成 + 一句可读的下一步”。
+// 成功/失败只给用户能懂的一句：成功说明做了什么；失败给“为什么没做成 + 你可以怎么办”。
+// 符号（✓/✕）由前端渲染，human_text 本身不带，避免重复。
 func humanizeAction(ac agent.DialogueAction, ar ActionResult) string {
 	var intent string
 	switch ac.Tool {
@@ -162,10 +163,21 @@ func humanizeAction(ac agent.DialogueAction, ar ActionResult) string {
 	case "revise_article_sentence":
 		intent = "按你说的说法改写稿件里的文字"
 	default:
-		intent = fmt.Sprintf("执行 %q 这步操作", ac.Tool)
+		intent = "处理你提出的这项需求"
 	}
 	if ar.Success {
-		return "✓ " + intent + "，已完成。"
+		return intent + "，已完成。"
 	}
-	return "未能" + intent + "。可以换个说法再说一次，或到「逐句编辑」/需求单里手动处理。"
+	switch ac.Tool {
+	case "update_requirement_field":
+		return intent + "这一步没做成。可能是我没听懂，换个更直白的说法再说一次；也可以直接在需求单表单里改。"
+	case "request_retrieval":
+		return intent + "这一步没做成。换个关键词再说一次，或先去资料库确认范围里有没有相关文档。"
+	case "append_article_content":
+		return intent + "这一步没做成。换个说法再说一次，或到「逐句编辑」面板手动补充。"
+	case "revise_article_sentence":
+		return intent + "这一步没做成。换个说法再说一次，或在「逐句编辑」面板里手动调整这句。"
+	default:
+		return "这步操作没能执行。请换个说法描述你的需求。"
+	}
 }

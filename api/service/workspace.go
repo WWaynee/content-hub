@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -51,13 +52,17 @@ func (r *RequirementInput) HasInitialContent() bool {
 }
 
 // RequirementCompletenessIssues 返回“能否一键生成”的缺项人话清单（空=已可生成）。
-// 收敛口径：发布平台必填；且（发文风格 或 字数 或 章节要求）至少一项；引用范围缺省=全部可访问资料，允许从零开始不在“缺项”里重申。
+// 收敛口径（与前端 guide.requirementMissing 一致，RFC rev-4 W4）：需求单标题 + 发布平台 必填；
+// 且（发文风格 或 字数 或 章节要求）至少一项；引用范围缺省=全部可访问资料，允许从零开始不在“缺项”里重申。
 // 让前端据此禁用「生成」并在 tooltip 列出缺什么，同时作为后端 Generate 的前置硬校验(W4)，避免拿空/半需求真跑昂贵 LLM。
 func RequirementCompletenessIssues(r *model.Requirement) []string {
 	if r == nil {
 		return []string{"需求单尚未存在"}
 	}
 	var missing []string
+	if strings.TrimSpace(r.Title) == "" {
+		missing = append(missing, "标题")
+	}
 	var ps []string
 	_ = json.Unmarshal(r.Platforms, &ps)
 	if len(ps) == 0 {
