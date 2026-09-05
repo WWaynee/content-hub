@@ -284,20 +284,11 @@ func StreamGeneration(c *gin.Context) {
 		fl.Flush()
 	}
 
-	// 1) 回放已落步骤（断线/刷新重建）。
-	steps, _ := storage.ListSteps(c.Request.Context(), rid)
-	for i := range steps {
-		st := steps[i]
-		ev := progress.Event{RunID: rid, Type: progress.EvStepDone, StepNo: st.StepNo,
-			Payload: stAsStep(st)}
-		writeSSE(ev)
-	}
-
-	// 2) 若 run 已终态：回放完成就收场；否则订阅 Broker 增量。
+	// 若 run 尚未终态：订阅 Broker 增量（Broker 自带最近 Recent 条的回放，能追平到实时；
+	// 语义步用 step 1..4，不再把 DB 里 P05 的 start/persist 行当作卡回放，避免与实时步序错位）。
 	if run.Status == string(model.RunRunning) || run.Status == string(model.RunAwaitingHuman) {
 		ch := runBroker().Subscribe(rid)
 		defer runBroker().Unsubscribe(rid, ch)
-		// 断线写不进去时（client 已走），select 退出即可。
 		keepGoing := true
 		for keepGoing {
 			select {
@@ -314,6 +305,13 @@ func StreamGeneration(c *gin.Context) {
 				}
 			}
 		}
+		return
+	}
+	// 已终态：直接给一个结束帧（前端用 fetch 流解析；无增量可推）。
+	if run.Status == string(model.RunSuccess) {
+		writeSSE(progress.Event{RunID: rid, Type: progress.EvRunDone, Payload: gin.H{"article": true, "run_id": rid}})
+	} else {
+		writeSSE(progress.Event{RunID: rid, Type: progress.EvRunFailed, Payload: run.ErrorMsg})
 	}
 }
 

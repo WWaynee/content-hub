@@ -64,18 +64,30 @@ type Event struct {
 type Broker struct {
 	mu   sync.Mutex
 	subs map[uint64][]chan Event // runID -> 订阅 chan（容量>=1，防 worker 阻塞）
+	last map[uint64][]Event      // runID -> 最近事件（环形），subscribe 时先补发，避免“刚连上错过已发 step”
 }
+
+// Recent 上限：补发给每个新订阅的最近事件数（覆盖已开始/极短暂的进度，够 UI 追平到实时）。
+const Recent = 48
 
 // NewBroker 构造。
 func NewBroker() *Broker {
-	return &Broker{subs: map[uint64][]chan Event{}}
+	return &Broker{subs: map[uint64][]chan Event{}, last: map[uint64][]Event{}}
 }
 
-// Subscribe 注册对某 run 的事件订阅，返回读通道。调用方应在 run 终态或客户端断开时 Unsubscribe。
+// Subscribe 注册对某 run 的事件订阅，返回读通道。先回放该 run 最近 Recent 条(尽量追平到实时)，
+// 之后继续应收实时增量。调用方应在 run 终态或客户端断开时 Unsubscribe。
 func (b *Broker) Subscribe(runID uint64) <-chan Event {
 	ch := make(chan Event, 32)
 	b.mu.Lock()
 	b.subs[runID] = append(b.subs[runID], ch)
+	for _, ev := range b.last[runID] {
+		select {
+		case ch <- ev:
+		default:
+			// 缓冲满让位给实时（丢的是历史，UI 可再由 DB 一次拉取兜底）
+		}
+	}
 	b.mu.Unlock()
 	return ch
 }
@@ -94,19 +106,27 @@ func (b *Broker) Unsubscribe(runID uint64, ch <-chan Event) {
 	if len(b.subs[runID]) == 0 {
 		delete(b.subs, runID)
 	}
+	if len(b.last) > 0 && len(b.last[runID]) == 0 {
+		delete(b.last, runID)
+	}
 }
 
 // Emit 向某 run 所有订阅者投递事件（非阻塞：chan 满则丢弃保 worker 不卡；丢包可由前端
-// 用 DB 回放兜底补齐，P13 语义前提"DB 是事实源"）。
+// 用 DB 一次拉取兜底补齐）。同时环形保留到 last，供掉线重连的先追平。
 func (b *Broker) Emit(ev Event) {
 	b.mu.Lock()
 	chs := append([]chan Event(nil), b.subs[ev.RunID]...)
+	b.last[ev.RunID] = append(b.last[ev.RunID], ev)
+	if len(b.last[ev.RunID]) > Recent {
+		copy(b.last[ev.RunID], b.last[ev.RunID][len(b.last[ev.RunID])-Recent:])
+		b.last[ev.RunID] = b.last[ev.RunID][:Recent]
+	}
 	b.mu.Unlock()
 	for _, ch := range chs {
 		select {
 		case ch <- ev:
 		default:
-			// 丢弃：订阅端消费慢。前端仅丢"中间 detail"，不丢 done/终态；即便全丢也能 DB 回放。
+			// 丢弃：订阅端消费慢。前端仅丢"中间 detail"，不丢 done/终态；即便全丢也能 DB 追平。
 		}
 	}
 }

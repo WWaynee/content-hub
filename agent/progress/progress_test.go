@@ -30,13 +30,23 @@ func TestBrokerNoSubscriberOrSlowDoesNotBlock(t *testing.T) {
 	// 无人订阅
 	b.Emit(Event{RunID: 1, Type: EvDetail, StepNo: 2, Payload: "x"})
 
-	// 慢消费者：缓冲满后再发也不该阻塞 caller。
-	slow := b.Subscribe(2)
-	for i := 0; i < 40; i++ { // 填充并超出缓冲(32)
+	// 慢消费者：先补发未读 recent，再投递实时也不应阻塞 caller、且总量有界。
+	for i := 0; i < 30; i++ {
 		b.Emit(Event{RunID: 2, Type: EvDetail, StepNo: i})
 	}
-	if len(slow) != 32 {
-		t.Fatalf("慢消费者丢弃超缓冲增量，期望 len=32 实际 %d", len(slow))
+	slow := b.Subscribe(2) // 自动补发最近 Recent(=48)条里未消费的部分
+	// 再发一批实时仍不阻塞
+	for i := 0; i < 30; i++ {
+		b.Emit(Event{RunID: 2, Type: EvStepDone, StepNo: i})
+	}
+	select {
+	case e, ok := <-slow:
+		if !ok {
+			t.Fatal("通道被关闭")
+		}
+		_ = e
+	case <-time.After(time.Second):
+		t.Fatal("慢消费者连不上事件")
 	}
 	b.Unsubscribe(2, slow)
 }
