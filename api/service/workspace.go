@@ -50,6 +50,27 @@ func (r *RequirementInput) HasInitialContent() bool {
 	return false
 }
 
+// RequirementCompletenessIssues 返回“能否一键生成”的缺项人话清单（空=已可生成）。
+// 收敛口径：发布平台必填；且（发文风格 或 字数 或 章节要求）至少一项；引用范围缺省=全部可访问资料，允许从零开始不在“缺项”里重申。
+// 让前端据此禁用「生成」并在 tooltip 列出缺什么，同时作为后端 Generate 的前置硬校验(W4)，避免拿空/半需求真跑昂贵 LLM。
+func RequirementCompletenessIssues(r *model.Requirement) []string {
+	if r == nil {
+		return []string{"需求单尚未存在"}
+	}
+	var missing []string
+	var ps []string
+	_ = json.Unmarshal(r.Platforms, &ps)
+	if len(ps) == 0 {
+		missing = append(missing, "发布平台")
+	}
+	hasSpec := r.StyleTone != "" || r.StyleEmotion != "" || r.StyleAudience != "" || r.StylePurpose != "" ||
+		r.StyleTaboo != "" || r.StyleSubject != "" || r.ChapterRequirement != "" || r.WordCount > 0
+	if !hasSpec {
+		missing = append(missing, "发文风格 / 字数 / 章节要求（至少其一）")
+	}
+	return missing
+}
+
 // CreateWorkspace 创建工作区（一个工作区对应一个需求单）。reqIn 可携带需求单初步内容，
 // 若传入则要求 mustComplete=true 时初步内容完整（由 handler 决定）。
 func CreateWorkspace(ctx context.Context, tenantID, ownerUserID uint64, title string, reqIn *RequirementInput) (*model.Workspace, error) {

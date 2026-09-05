@@ -28,10 +28,14 @@ type DispatchResult struct {
 }
 
 // ActionResult 单个 action 的执行结果。
+//   - Message 保留底层/内部文案(可溯源)；HumanText 给用户看的一句话(不带 tool 名)；
+//   - Debug 供日志/溯源；前端展示 HumanText+Success(✓/✕)，不再把 tool:…(msg) 怼给用户(W2)。
 type ActionResult struct {
-	Tool    string `json:"tool"`
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
+	Tool      string `json:"tool"`
+	Success   bool   `json:"success"`
+	Message   string `json:"message,omitempty"`    // 内部/技术文案
+	HumanText string `json:"human_text,omitempty"` // 人话
+	Debug     string `json:"debug,omitempty"`      // 内部细节（溯源用）
 }
 
 // ProcessChat 处理一条工作区对话消息：解析意图 → 逐 action 执行 → 落会话消息。
@@ -67,6 +71,8 @@ func (d *Dispatcher) ProcessChat(ctx context.Context, tenantID, userID, workspac
 	res := &DispatchResult{Plan: plan}
 	for _, ac := range plan.Actions {
 		ar := d.execAction(ctx, tenantID, userID, workspaceID, req, ac)
+		ar.HumanText = humanizeAction(ac, ar)
+		ar.Debug = ar.Message
 		res.Results = append(res.Results, ar)
 	}
 	return res, nil
@@ -109,4 +115,57 @@ func (d *Dispatcher) execAction(ctx context.Context, tenantID, userID, workspace
 	default:
 		return ActionResult{Tool: ac.Tool, Success: false, Message: "未知工具 " + ac.Tool}
 	}
+}
+
+// fieldCN 白名单内需求单字段的中文人话标签（对外展示，避免直接暴露 style_tone 之类字段名）。
+func fieldCN(f string) string {
+	switch f {
+	case "style_tone":
+		return "发文基调"
+	case "style_emotion":
+		return "感情色彩"
+	case "style_audience":
+		return "目标受众"
+	case "style_purpose":
+		return "发文目的"
+	case "style_taboo":
+		return "禁忌/约束"
+	case "style_subject":
+		return "发文主题"
+	case "chapter_requirement":
+		return "章节要求"
+	case "word_count":
+		return "字数"
+	default:
+		if f == "" {
+			return "需求单"
+		}
+		return f
+	}
+}
+
+// humanizeAction 把某个 action 的执行结果转成不暴露 tool 名的人话（W2）。
+// 同一措辞无论成败都用；成功补“已完成”，失败补“未能完成 + 一句可读的下一步”。
+func humanizeAction(ac agent.DialogueAction, ar ActionResult) string {
+	var intent string
+	switch ac.Tool {
+	case "update_requirement_field":
+		if field := ac.Field; field != "" {
+			intent = fmt.Sprintf("把你的要求写进需求单的「%s」", fieldCN(field))
+		} else {
+			intent = "把你的要求写进需求单"
+		}
+	case "request_retrieval":
+		intent = "帮你在知识库里再检索一遍并记录结果"
+	case "append_article_content":
+		intent = "把你说的内容补进稿件"
+	case "revise_article_sentence":
+		intent = "按你说的说法改写稿件里的文字"
+	default:
+		intent = fmt.Sprintf("执行 %q 这步操作", ac.Tool)
+	}
+	if ar.Success {
+		return "✓ " + intent + "，已完成。"
+	}
+	return "未能" + intent + "。可以换个说法再说一次，或到「逐句编辑」/需求单里手动处理。"
 }

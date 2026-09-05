@@ -12,6 +12,8 @@ import {
   Typography,
   Divider,
   Segmented,
+  Tooltip,
+  Steps,
 } from 'antd'
 import { SendOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import api from '../api'
@@ -19,6 +21,7 @@ import type { Requirement, Article } from '../types'
 import RequirementScopeModal from './RequirementScopeModal'
 import ArticleSentencesBoard from './ArticleSentencesBoard'
 import ArticleReadableView from './ArticleReadableView'
+import { isRequirementReady, requirementMissing } from '../guide'
 import { PLATFORMS } from '../types'
 
 export default function WorkspaceDetail() {
@@ -31,6 +34,8 @@ export default function WorkspaceDetail() {
   const [generating, setGenerating] = useState(false)
   // P11：稿件页签视图——read=可读正文（默认）；edit=逐句受控编辑面板
   const [articleView, setArticleView] = useState<'read' | 'edit'>('read')
+  // P12：最近一次对话的结果（人话清单，不使用 tool:xxx）
+  const [chatLog, setChatLog] = useState<{ ok: boolean; text: string }[] | null>(null)
   const [exported, setExported] = useState('')
   const [chat, setChat] = useState('')
   const [sending, setSending] = useState(false)
@@ -105,6 +110,11 @@ export default function WorkspaceDetail() {
   }
 
   const generate = async () => {
+    setChatLog(null)
+    if (req && !isRequirementReady(req)) {
+      message.warning('还不能一键生成，需求单还缺：' + requirementMissing(req).join('、'))
+      return
+    }
     setGenerating(true)
     try {
       await api.post(`/workspaces/${wid}/generate`)
@@ -156,10 +166,17 @@ export default function WorkspaceDetail() {
         target_type: 'requirement_field',
         target_ref: req.id,
       })) as any
-      const summary = (r?.results || [])
-        .map((x: any) => `${x.tool}:${x.success ? '成功' : '失败'}(${x.message})`)
-        .join('\n')
-      message.info('对话处理结果：\n' + (summary || '无动作'))
+      const raw: any[] = r?.results || []
+      if (raw.length === 0) {
+        setChatLog([{ ok: true, text: '这条消息我没有修改任何需求单/稿件。如需改某个字段、追加段落或补检索，跟我说即可。' }])
+      } else {
+        setChatLog(
+          raw.map((x) => ({
+            ok: !!x.success,
+            text: x.human_text || (x.success ? '已处理。' : '未能完成，换个说法或到对应板块手动处理。'),
+          })),
+        )
+      }
       setChat('')
       loadReq()
     } catch (e: any) {
@@ -168,6 +185,11 @@ export default function WorkspaceDetail() {
       setSending(false)
     }
   }
+
+  // P12/W4：可生成派生态（禁态 + 缺项 tooltip + 向导步）
+  const canGen = !!req && isRequirementReady(req)
+  const reqMissing = req ? requirementMissing(req) : []
+  const genBlockReason = reqMissing.length ? '生成稿件前还缺：' + reqMissing.join('、') : ''
 
   const tabItems = [
     {
@@ -241,6 +263,8 @@ export default function WorkspaceDetail() {
             onSave={saveReq}
             onGenerate={generate}
             generating={generating}
+            generateAllowed={canGen}
+            generateHint={genBlockReason}
           />
         </Form>
       ),
@@ -254,6 +278,8 @@ export default function WorkspaceDetail() {
             onExport={doExport}
             onGenerate={generate}
             generating={generating}
+            generateAllowed={canGen}
+            generateHint={genBlockReason}
           />
           {exported && (
             <Card size="small" style={{ marginBottom: 16, background: 'var(--panel-bg)' }}>
@@ -342,10 +368,44 @@ export default function WorkspaceDetail() {
         )}
       </Descriptions>
 
+      {req || article ? (
+        <div style={{ marginBottom: 12 }}>
+          <Steps
+            size="small"
+            current={article ? 2 : canGen ? 1 : 0}
+            items={[
+              { title: '1 填需求', description: canGen ? '需求已具备' : '还缺：' + (reqMissing.slice(0, 2).join('、') || '需求数据') },
+              {
+                title: '2 生成稿件',
+                description: generating ? '正在生成…' : canGen ? '点「生成稿件」，会先去资料里逐句找证据' : '补齐需求后可一键生成',
+              },
+              { title: '3 看稿 / 导出', description: article ? '稿件页签可读正文并导出含证据清单' : '有新稿后去“稿件”页签查看' },
+            ]}
+          />
+        </div>
+      ) : null}
+
       <Tabs items={tabItems} />
 
-      <Divider titlePlacement="left">需求对话（AI 修改需求单字段）</Divider>
+      <Divider titlePlacement="left">需求对话（说出你想让 AI 帮你改的需求/稿件动作）</Divider>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 }}>
+        {chatLog && chatLog.length > 0 ? (
+          <div
+            style={{
+              padding: '8px 12px',
+              background: 'var(--panel-bg, #fff)',
+              border: '1px solid var(--border, #eee)',
+              borderRadius: 8,
+            }}
+          >
+            {chatLog.map((l, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, padding: '2px 0' }}>
+                <span style={{ color: l.ok ? '#52c41a' : '#cf1322', flex: '0 0 auto' }}>{l.ok ? '✓' : '✕'}</span>
+                <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{l.text}</Typography.Text>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <Input.TextArea
           rows={3}
           placeholder="如：把基调改成严谨"
@@ -381,13 +441,26 @@ function SpaceCombo(props: {
   onGenerate?: () => void
   onExport?: () => void
   generating?: boolean
+  generateAllowed?: boolean
+  generateHint?: string
 }) {
+  const genAllowed = props.generateAllowed !== false
   return (
     <div style={{ marginBottom: 16 }}>
       {props.onGenerate && (
-        <Button type="primary" loading={props.generating} onClick={props.onGenerate} style={{ marginRight: 8 }}>
-          生成稿件
-        </Button>
+        <Tooltip title={!genAllowed ? props.generateHint || '需求还需补充后才能生成' : undefined}>
+          <span>
+            <Button
+              type="primary"
+              loading={props.generating}
+              disabled={!genAllowed}
+              onClick={props.onGenerate}
+              style={{ marginRight: 8 }}
+            >
+              生成稿件
+            </Button>
+          </span>
+        </Tooltip>
       )}
       {props.onSave && (
         <Button onClick={props.onSave} style={{ marginRight: 8 }}>

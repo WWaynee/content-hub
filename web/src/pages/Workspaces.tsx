@@ -34,11 +34,11 @@ import type { Workspace } from '../types'
 import { PLATFORMS } from '../types'
 
 // 需求(工作区)状态彩色映射 —— 醒目提示
+// 状态别名收敛：draft/needs_req 两个近义统一为「待填需求」（P12，避免卡片存在极少走到的 needs_req）。
 const STATUS_META: { value: string; label: string; color: string }[] = [
-  { value: 'draft', label: '草稿', color: 'default' },
-  { value: 'needs_req', label: '待录入需求', color: 'gold' },
+  { value: 'draft', label: '待填需求', color: 'gold' },
   { value: 'generating', label: '生成中', color: 'blue' },
-  { value: 'generated', label: '已完成', color: 'green' },
+  { value: 'generated', label: '已生成', color: 'green' },
   { value: 'revising', label: '修改中', color: 'geekblue' },
   { value: 'failed', label: '生成失败', color: 'red' },
 ]
