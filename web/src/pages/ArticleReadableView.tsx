@@ -14,7 +14,7 @@
  *   - 页级：只看/淡化无据句；折叠“证据密度 / 出处”清单（默认收起）。
  */
 import { useMemo, useState } from 'react'
-import { Button, Collapse, Space, Switch, Tooltip, Typography } from 'antd'
+import { Button, Space, Switch, Tooltip, Typography } from 'antd'
 import { BookOutlined, EyeOutlined } from '@ant-design/icons'
 import type { Article, SentenceView } from '../types'
 import { BoundSourceMarker, NoSourceMark, SourcesCard } from './ArticleSourceTooltip'
@@ -78,20 +78,20 @@ export default function ArticleReadableView(props: { article: Article; onGoEditN
       </div>
 
       {refOpen ? (
-        <Collapse
-          ghost
-          size="small"
-          style={{ marginBottom: 10 }}
-          items={boundRows.map((r, i) => ({
-            key: i,
-            label: (
-              <Typography.Text ellipsis style={{ fontSize: 13 }}>
-                {r.text}
-              </Typography.Text>
-            ),
-            children: <SourcesCard sources={r.view?.sources ?? []} />,
-          }))}
-        />
+        // P11 证据密度：保持“默认收起/点开”，用轻量条件列表而非 rc-motion 折叠，便于可测且观感更直白
+        <div style={{ border: '1px solid var(--border,#e4e6eb)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+          <Space orientation="vertical" size={8} style={{ width: '100%' }}>
+            {boundRows.map((r) => (
+              <div key={r.view?.sentence_id ?? r.id} style={{ borderBottom: '1px dashed var(--border,#eee)', paddingBottom: 6 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>
+                  出处引用（{r.view?.sources?.length ?? 0} 条）
+                </Typography.Text>
+                <Typography.Paragraph style={{ margin: '2px 0', fontSize: 13 }}>{r.text}</Typography.Paragraph>
+                <SourcesCard sources={r.view?.sources ?? []} />
+              </div>
+            ))}
+          </Space>
+        </div>
       ) : null}
 
       <div
