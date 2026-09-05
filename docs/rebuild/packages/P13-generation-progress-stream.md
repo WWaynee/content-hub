@@ -282,3 +282,13 @@
 - 真异步 MQ worker、跨进程 SSE、“取消（中断）生成”是 P13b 演进，本 P13 不做。
 - 遗留未提交的 `web/src/api.ts`、`RequirementScopeModal*` 是仓库里早于本任务就存在的他人 WIP，未纳入本次提交。
 
+---
+
+### 二次修正补记（本会话收尾新增，均已落地）
+1. **真 SSE 流式前端**：WorkspaceDetail 不再轮询 `generation_run`，改为 POST 快返 run_id 后 `fetch(Range=…/generate/stream)` + 自解析 `event:/data:` 帧，逐帧将 4 张语义步点亮到进度面板（进行中◉/成功✓/失败✕/待定○，失败在当卡红字展示原因）。因鉴权在 header，未用浏览器原生 EventSource。见 `web/src/sse.ts`、`WorkspaceDetail.tsx`。
+2. **Broker.Recent 补发**：Subscribe 先回放最近 ~48 帧再转实时，避免“晚连/断线”错失极短步骤事件；进度真源仍是 DB，DB 收口见 4。
+3. **隐藏根因(重要)：后台 ctx 丢失检索者身份导致私有库检索全部 miss**。
+   `searchOwnerFromCtx` = `observability.UserIDFromCtx(ctx)`：HTTP 请求由 middleware 注入 user，但把生成改成 `context.Background()` goroutine 后 user=0 → 检索范围退化为“仅公有”，私库（owner 本人勾选的资料）永远查不到、一律误报缺证。修复：`runGenerationGoroutine` 用 `observability.WithTenantUser(base, TenantsID, UserID)` 构造后台 ctx（zhumi 显示 user=153 可见其私有目录 166）。补料据此定位，实现在带 user 注入后一次 POST run163 走通 step1(检索命中)→step2(撰写)→step3(逐句)→success，产出 article_version 586。
+4. **进度步收口兜底**：每步事件存在极短窗口/进程重启漏标 done。新增 `storage.MarkAllStepsFinal`，`runGenerationGoroutine` 在成功/失败/panic 的 defer 里对该 run 未 done 的行统一置 done=true，保证断线后 `generation_run`/SSE 回放看到完整一致状态。
+5. 本地真验：`curl -N /generate/stream`（ws700）在补料+user 注入前只能收到 step_begin+step_fail(缺证7条)；修复后逐帧收到 step_begin/detail/done 直到 success。前端 HMR 后即可在 http://localhost:5173 直接点生成看到流式点亮；旧 5173/后端旧进程均已杀。
+

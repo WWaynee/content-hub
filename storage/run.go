@@ -128,6 +128,13 @@ func AppendStep(ctx context.Context, runID uint64, step model.AgentStep) (uint64
 	return stepID, nil
 }
 
+// MarkAllStepsFinal 在 run 结束(成功/失败)时把仍标为进行中的进度步收口为 done，保证 DB 回放一致
+//（不依赖每个 step_done 事件是否都成功更新同一行，兜底防断线/竞态漏标）。
+func MarkAllStepsFinal(ctx context.Context, runID uint64) error {
+	return GetDB().WithContext(ctx).Model(&model.AgentStep{}).Where("run_id = ? AND done = ?", runID, false).
+		Updates(map[string]interface{}{"done": true, "updated_at": time.Now()}).Error
+}
+
 // ListSteps 列出某 run 的全部 step（按 step_no 升序，供回放/审计/前端轮询）。
 func ListSteps(ctx context.Context, runID uint64) ([]model.AgentStep, error) {
 	var list []model.AgentStep

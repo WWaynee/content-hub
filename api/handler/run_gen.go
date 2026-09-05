@@ -32,6 +32,7 @@ import (
 	"github.com/WWaynee/content-hub/api/response"
 	"github.com/WWaynee/content-hub/api/service"
 	"github.com/WWaynee/content-hub/llmclient"
+	"github.com/WWaynee/content-hub/observability"
 	"github.com/WWaynee/content-hub/storage"
 	"github.com/WWaynee/content-hub/storage/model"
 )
@@ -95,16 +96,25 @@ func stepRole(no int) string {
 
 // runGenerationGoroutine 执行整条主链；每一步(1..4)的变化都会落 agent_steps 并广播。
 func runGenerationGoroutine(args generationTask) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	// 用不依赖 HTTP request ctx 的后台 context，并注入 tenant/user，使“私有库可见性”成立：
+	// 检索依赖 ctx 中的 user_id（observability.UserIDFromCtx）限定可见范围——若不起注入，
+	// 后台 ctx 的 user=0 只能看到公库，zhumi 的私有资料（含其勾选范围）将全部查不到而误报缺证。
+	base := context.Background()
+	ctx, cancel := context.WithTimeout(observability.WithTenantUser(base, args.TenantID, args.UserID), 20*time.Minute)
 	defer cancel()
 	broker := runBroker()
 
 	defer func() {
 		if r := recover(); r != nil {
 			_ = storage.FailRun(context.Background(), args.RunID, fmt.Sprint("生成进程异常：", r))
+			_ = storage.MarkAllStepsFinal(context.Background(), args.RunID)
 			storage.UpdateWorkspaceStatus(context.Background(), args.WorkspaceID, args.PrevStatus)
 			broker.Emit(progress.Event{RunID: args.RunID, Type: progress.EvRunFailed, Payload: "后台生成进程异常"})
 		}
+	}()
+	// 终局兜底：无论成功/失败/中断，都把「进行中」的进度步收口为 done，保证 DB 回放一致。
+	defer func() {
+		_ = storage.MarkAllStepsFinal(ctx, args.RunID)
 	}()
 
 	llm := llmclient.NewClient()
