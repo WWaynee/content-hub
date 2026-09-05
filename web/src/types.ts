@@ -131,6 +131,25 @@ export interface Article {
   sentences: ArticleSentence[]
   bindings: EvidenceBinding[]
   sentence_views?: SentenceView[]
+  /** P11：后端正则的 sec→para→sentence 结构化视图（旧版线性稿退化为单段）。 */
+  sections?: ArticleSection[]
+}
+
+/** P11/P03：稿件结构化层级的一节（章节容器；heading 未以字段落库时多个段落同存其下）。 */
+export interface ArticleSection {
+  section_index: number
+  paragraphs: ArticleParagraph[]
+}
+/** P11/P03：一个段落，内含按顺序排列的句子引用（含其 sentence_id 主键）。 */
+export interface ArticleParagraph {
+  paragraph_index: number
+  sentences: ArticleSentenceRef[]
+}
+/** P11：结构化正文中一句的轻量引用（仅 id/content，请求 UI 桥到 sentence_views 拿源）。 */
+export interface ArticleSentenceRef {
+  sentence_index: number
+  id: number
+  content: string
 }
 
 export const PLATFORMS = ['微信公众号', '小红书', '单位网站', '微博']

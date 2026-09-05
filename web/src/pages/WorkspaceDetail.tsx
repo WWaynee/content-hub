@@ -11,12 +11,14 @@ import {
   Card,
   Typography,
   Divider,
+  Segmented,
 } from 'antd'
 import { SendOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import api from '../api'
 import type { Requirement, Article } from '../types'
 import RequirementScopeModal from './RequirementScopeModal'
 import ArticleSentencesBoard from './ArticleSentencesBoard'
+import ArticleReadableView from './ArticleReadableView'
 import { PLATFORMS } from '../types'
 
 export default function WorkspaceDetail() {
@@ -27,6 +29,8 @@ export default function WorkspaceDetail() {
   const [req, setReq] = useState<Requirement | null>(null)
   const [article, setArticle] = useState<Article | null>(null)
   const [generating, setGenerating] = useState(false)
+  // P11：稿件页签视图——read=可读正文（默认）；edit=逐句受控编辑面板
+  const [articleView, setArticleView] = useState<'read' | 'edit'>('read')
   const [exported, setExported] = useState('')
   const [chat, setChat] = useState('')
   const [sending, setSending] = useState(false)
@@ -261,14 +265,34 @@ export default function WorkspaceDetail() {
               </Typography.Paragraph>
             </Card>
           )}
-          <Divider titlePlacement="left">正文</Divider>
-          <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{article.full_content}</Typography.Paragraph>
-          <Divider titlePlacement="left">句子 · 受控编辑 / 可溯源</Divider>
-          <ArticleSentencesBoard
-            wid={wid}
-            article={article}
-            onCommitted={loadArticle}
+          <Divider titlePlacement="left">稿件呈现</Divider>
+          <Segmented
+            value={articleView}
+            onChange={(v) => setArticleView(v as 'read' | 'edit')}
+            options={[
+              { label: '可读正文（看逐句出处）', value: 'read' },
+              { label: '逐句编辑 / 取舍', value: 'edit' },
+            ]}
+            block
+            style={{ marginBottom: 14 }}
           />
+          {articleView === 'read' ? (
+            <ArticleReadableView
+              article={article}
+              onGoEditNoSource={() => setArticleView('edit')}
+            />
+          ) : (
+            <>
+              <ArticleSentencesBoard
+                wid={wid}
+                article={article}
+                onCommitted={loadArticle}
+              />
+              <Button size="small" style={{ marginTop: 8 }} onClick={() => setArticleView('read')}>
+                回到可读正文
+              </Button>
+            </>
+          )}
         </div>
       ) : req?.source_kind === 'draft_assist' ? (
         <div style={{ maxWidth: 640 }}>
