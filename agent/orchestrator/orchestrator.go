@@ -11,6 +11,7 @@ import (
 
 	"github.com/WWaynee/content-hub/agent"
 	"github.com/WWaynee/content-hub/agent/censor"
+	"github.com/WWaynee/content-hub/agent/progress"
 )
 
 // ErrNoEvidence 检索阶段未能从知识库中获取到任何与该需求主题相关的资料。
@@ -66,6 +67,9 @@ type Orchestrator struct {
 	evidence  EvidenceBuilder
 	checker   *censor.ClaimPlanner
 	verifier  *censor.FactVerifier
+
+	// onStep （P13 进度）在 检索/撰写/校验/整理 各阶段 begin/done 时回调，供 handler 落库+推SSE。
+	onStep func(ev progress.Event)
 }
 
 // New 构造编排器。
@@ -78,6 +82,28 @@ func New(r Retriever, w Writer, e EvidenceBuilder, checker *censor.ClaimPlanner)
 func (o *Orchestrator) SetFactVerifier(v *censor.FactVerifier) *Orchestrator {
 	o.verifier = v
 	return o
+}
+
+// SetOnStep 注入每阶段进度回调（可 nil 以保持纯引擎、便于离线圈测试）。
+func (o *Orchestrator) SetOnStep(fn func(ev progress.Event)) *Orchestrator {
+	o.onStep = fn
+	return o
+}
+
+// StepNo 用户可见的阶段序号（P13 语义步：1检索并取证 / 2撰写全文 / 3逐句校验 / 4整理证据）。
+// 供 handler 把进度事件归到正确的卡。
+const (
+	StepSearch   = 1
+	StepWrite    = 2
+	StepVerify   = 3
+	StepEvidence = 4
+	TotalSteps   = 4
+)
+
+func (o *Orchestrator) emit(ev progress.Event) {
+	if o.onStep != nil {
+		o.onStep(ev)
+	}
 }
 
 // GenerationResult 一次稿件生成（generation）的完整产物。
@@ -94,69 +120,113 @@ func (o *Orchestrator) Generate(ctx context.Context, tenantID uint64, req agent.
 	// 一旦注入了 checker，就以 claim 逐点检索为准，避免 Generate 开头那一次对全需求重复首检(C6 冗余)。
 	var finalEvidence []agent.Evidence
 	var finalQueries []string
+
+	phaseStep := func(stepNo int, begin bool) {
+		st := progress.Step{ No: stepNo, Total: TotalSteps, Done: !begin }
+		if begin {
+			o.emit(progress.Event{RunID: 0, Type: progress.EvStepBegin, StepNo: stepNo, Payload: st})
+		} else {
+			o.emit(progress.Event{RunID: 0, Type: progress.EvStepDone, StepNo: stepNo, Payload: st})
+		}
+	}
+
+	phaseStep(StepSearch, true)
+	var searchSummary string
 	if o.checker != nil {
 		cov, cerr := o.checker.Check(ctx, tenantID, req, fileIDs)
 		if cerr != nil {
+			o.emitFail(StepSearch, cerr.Error())
 			return nil, cerr
 		}
 		// 存在「需要事实支撑」但无证据的点 → 整篇阻断，返回缺证清单(由上游转 await_human/缺证人话)
 		if len(cov.Missing) > 0 {
+			o.emitFail(StepSearch, fmt.Sprintf("缺少资料支撑的点：%d 条", len(cov.Missing)))
 			return nil, &ErrInsufficientEvidence{Missing: cov.Missing}
 		}
 		if len(cov.Evidence) == 0 {
+			o.emitFail(StepSearch, "未检索到与该需求主题相关的资料")
 			return nil, ErrNoEvidence
 		}
 		finalEvidence = cov.Evidence
 		finalQueries = cov.Queries
+		searchSummary = fmt.Sprintf("按子需求点检索并核对：共 %d 个子需求点、%d 条证据（覆盖来源文档 %d 份）", len(cov.Queries), len(cov.Evidence), fileCount(cov.Evidence))
 	} else {
 		// 旧兼容：无 checker 时退化为"整体检索 + 有无证据"的简单闸(不逐点核对)。
 		if o.retriever == nil {
+			o.emitFail(StepSearch, "检索器不可用")
 			return nil, ErrNoEvidence
 		}
 		ret, rerr := o.retriever.Retrieve(ctx, agent.RetrieveRequest{
 			TenantID: tenantID, Requirement: req, FileIDs: fileIDs,
 		})
 		if rerr != nil {
+			o.emitFail(StepSearch, rerr.Error())
 			return nil, rerr
 		}
 		finalEvidence = ret.Evidence
 		finalQueries = ret.Queries
 		if len(finalEvidence) == 0 {
+			o.emitFail(StepSearch, "未检索到与该需求主题相关的资料")
 			return nil, ErrNoEvidence
 		}
+		searchSummary = fmt.Sprintf("整体检索命中 %d 条证据", len(finalEvidence))
 	}
+	o.emit(progress.Event{RunID: 0, Type: progress.EvDetail, StepNo: StepSearch,
+		Payload: progress.Step{No: StepSearch, Total: TotalSteps, Done: false, Detail: searchSummary}})
+	phaseStep(StepSearch, false)
 
 	// 2. 撰写
+	phaseStep(StepWrite, true)
 	article, err := o.writer.Write(ctx, agent.WritingRequest{
 		Requirement: req,
 		Evidence:    finalEvidence,
 	})
 	if err != nil {
+		o.emitFail(StepWrite, err.Error())
 		return nil, err
 	}
+	sents := flattenSentences(article)
+	o.emit(progress.Event{RunID: 0, Type: progress.EvDetail, StepNo: StepWrite,
+		Payload: progress.Step{No: StepWrite, Total: TotalSteps, Done: false,
+			Detail: fmt.Sprintf("依据 %d 条证据撰写全文：%d 个句子", len(finalEvidence), len(sents))}})
+	phaseStep(StepWrite, false)
 
 	// 2.5 事实断言校验（闸门二）：稿件的每个数据/事实断言必须能直接在证据原文中找到支撑。
 	//      允许语义等价/同义改写，禁止规模统计推断。有无法支撑的数据断言 → 阻断，不落库。
 	if o.verifier != nil {
+		phaseStep(StepVerify, true)
 		flat := flattenSentences(article)
 		fc, ferr := o.verifier.Check(ctx, flat, finalEvidence)
 		if ferr != nil {
+			o.emitFail(StepVerify, ferr.Error())
 			return nil, ferr
 		}
 		if fc.Blocked {
+			o.emitFail(StepVerify, fmt.Sprintf("存在无证据支撑的数据断言 %d 条", len(fc.UnsupportedTexts)))
 			return nil, &ErrFactUnsupported{Unsupported: fc.UnsupportedTexts}
 		}
+		o.emit(progress.Event{RunID: 0, Type: progress.EvDetail, StepNo: StepVerify,
+			Payload: progress.Step{No: StepVerify, Total: TotalSteps, Done: false,
+				Detail: fmt.Sprintf("逐句核查 %d 个句子中的数据/事实断言，均已能在证据原文直接支撑", len(flat))}})
 		// 校验通过后，把每个句子的实际证据绑定（evidence_idx）回写到 article，供证据整理使用
 		if err := applyFactRefs(article, finalEvidence, fc); err != nil {
+			o.emitFail(StepVerify, err.Error())
 			return nil, err
 		}
+		phaseStep(StepVerify, false)
 	}
 
 	// 3. 证据整理
+	phaseStep(StepEvidence, true)
 	manifest, err := o.evidence.Build(ctx, article, finalEvidence)
 	if err != nil {
+		o.emitFail(StepEvidence, err.Error())
 		return nil, err
 	}
+	o.emit(progress.Event{RunID: 0, Type: progress.EvDetail, StepNo: StepEvidence,
+		Payload: progress.Step{No: StepEvidence, Total: TotalSteps, Done: false,
+			Detail: fmt.Sprintf("整理证据清单：%d 条可溯源条目", len(manifest.Entries))}})
+	phaseStep(StepEvidence, false)
 
 	return &GenerationResult{
 		Article:  article,
@@ -164,6 +234,21 @@ func (o *Orchestrator) Generate(ctx context.Context, tenantID uint64, req agent.
 		Manifest: manifest,
 		Queries:  finalQueries,
 	}, nil
+}
+
+// emitFail 把某一步标记为失败（供进度展示定位"卡在哪一步"）。
+func (o *Orchestrator) emitFail(stepNo int, reason string) {
+	o.emit(progress.Event{RunID: 0, Type: progress.EvStepFail, StepNo: stepNo,
+		Payload: progress.Step{No: stepNo, Total: TotalSteps, Done: true, Failed: true, Failure: reason}})
+}
+
+// fileCount 统计证据覆盖到的不同文档数，供摘要/进度显示。
+func fileCount(ev []agent.Evidence) int {
+	seen := map[uint64]bool{}
+	for _, e := range ev {
+		seen[e.FileID] = true
+	}
+	return len(seen)
 }
 
 // flattenSentences 把稿件按句子顺序平铺成文本列表（与 article 的句子序列一一对应）。

@@ -137,6 +137,31 @@ func ListSteps(ctx context.Context, runID uint64) ([]model.AgentStep, error) {
 	return list, nil
 }
 
+// BeginProgressStep 落一条"进行中"的 P13 进度步（done=false）。返回 step.id 供后续 EndProgressStep 收口。
+// 它把语义步（用户可感知的检索/撰写/校验/整理）作为 run 内一行，StepNo 沿用 AppendStep 的自增次序，
+// 让前端能"看到当前在跑哪一步"。区别于 start_generation 等引导行，真正的进度行 role 来自生成主链。
+func BeginProgressStep(ctx context.Context, runID uint64, role, action, title string, total int) (uint64, error) {
+	step := model.AgentStep{
+		Role: role, Action: action, StepTitle: title,
+		TotalSteps: total, Done: false, Outcome: model.OutcomeAccepted,
+	}
+	return AppendStep(ctx, runID, step)
+}
+
+// EndProgressStep 收口一步进度：置完成/失败、耗时与对 LLM/检索的发送-回执摘要，并返回该步。
+func EndProgressStep(ctx context.Context, stepID uint64, done, failed bool, failure, detail string, durationMs int64) error {
+	up := map[string]interface{}{
+		"done": done, "failure": "", "detail": detail, "duration_ms": durationMs, "updated_at": time.Now(),
+	}
+	if failed {
+		up["done"], up["outcome"] = true, model.OutcomeRejected
+	}
+	if failure != "" {
+		up["failure"] = failure
+	}
+	return GetDB().WithContext(ctx).Model(&model.AgentStep{}).Where("id = ?", stepID).Updates(up).Error
+}
+
 // FinishRunOk 正常完成 run（成功并产出版本）。置 status=success，活省 active，记录 result_version_id。依赖 index idx_ws_active 支持。
 func FinishRunOk(ctx context.Context, runID, resultVersionID uint64) error {
 	res := GetDB().WithContext(ctx).Model(&model.AgentRun{}).Where("id = ?", runID).

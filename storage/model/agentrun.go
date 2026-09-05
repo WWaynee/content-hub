@@ -77,6 +77,8 @@ type AgentRun struct {
 func (AgentRun) TableName() string { return "agent_runs" }
 
 // AgentStep run 内一步的执行记录（可回放：这步是谁、做了什么、决定下一步派给谁）。
+// P13：一步对应一个"用户可感知的生成阶段"；新增进度展示列供前端流式渲染生成详情，
+// 解决"只给一个 loading，用户不知道后台进行到第几步、卡在哪、向 AI 发了什么回了什么"。
 type AgentStep struct {
 	ID          uint64 `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	RunID       uint64 `gorm:"column:run_id;not null;uniqueIndex:idx_run_step" json:"run_id"`
@@ -96,6 +98,20 @@ type AgentStep struct {
 	// RefID 关联的 article_version 等正式产物 id（可选）
 	RefID     uint64    `gorm:"column:ref_id;not null;default:0" json:"ref_id,omitempty"`
 	CreatedAt time.Time `gorm:"column:created_at;type:datetime(3)" json:"created_at"`
+
+	// ---- P13 生成进度展示附加列（兼容旧行，均可空/有默认） ----
+	// Done 是否已结束；false=进行中（供前端状态灯 + 回放区分 running/done/failed）
+	Done bool `gorm:"column:done;not null;default:false" json:"done"`
+	// TotalSteps 本次 run 的总步数（供 UI 显示"第 N / 共 M 步"；0=前端按已有序号估算）
+	TotalSteps int `gorm:"column:total_steps;not null;default:0" json:"total_steps"`
+	// StepTitle 步骤人话标题，如"检索『2025招生报名人数』"（空则前端回退用 action/role）
+	StepTitle string `gorm:"column:step_title;size:255;not null;default:''" json:"step_title,omitempty"`
+	// Failure 失败原因文字（仅失败步，供 UI 在该步就地显示"卡在哪：xxx"）
+	Failure string `gorm:"column:failure;type:text" json:"failure,omitempty"`
+	// DurationMs 本步耗时（毫秒）
+	DurationMs int64 `gorm:"column:duration_ms;not null;default:0" json:"duration_ms"`
+	// Detail 本步"对 LLM/检索发了什么 + 收回什么"的脱敏截断摘要（默认前端折叠，想看细节再展开）
+	Detail string `gorm:"column:detail;type:text" json:"detail,omitempty"`
 }
 
 func (AgentStep) TableName() string { return "agent_steps" }

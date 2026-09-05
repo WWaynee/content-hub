@@ -32,6 +32,8 @@ export default function WorkspaceDetail() {
   const [req, setReq] = useState<Requirement | null>(null)
   const [article, setArticle] = useState<Article | null>(null)
   const [generating, setGenerating] = useState(false)
+  // P13：生成进度（异步：POST 快返 run_id，后台逐步跑；前端轮询 generation_run 展示进行到哪）
+  const [genStepNow, setGenStepNow] = useState<string>('')
   // P11：稿件页签视图——read=可读正文（默认）；edit=逐句受控编辑面板
   const [articleView, setArticleView] = useState<'read' | 'edit'>('read')
   // P12：最近一次对话的结果（人话清单，不使用 tool:xxx）
@@ -116,12 +118,42 @@ export default function WorkspaceDetail() {
       return
     }
     setGenerating(true)
+    setGenStepNow('')
     try {
-      await api.post(`/workspaces/${wid}/generate`)
-      await loadArticle()
-      message.success('稿件已生成')
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+      // P13：POST 仅 20ms 级返回 run_id，稿件生成改由后台逐步进行——前端轮询进度直至完成/失败。
+      const posted: any = await api.post(`/workspaces/${wid}/generate`)
+      const runId = Number(posted?.run_id)
+      if (!runId) {
+        await sleep(800)
+        await loadArticle()
+        message.success('稿件已生成')
+        return
+      }
+      for (let i = 0; i < 400; i++) {
+        await sleep(1500)
+        const gr = (await api.get(`/workspaces/${wid}/generation_run?run_id=${runId}`)) as any
+        const run = gr?.run
+        if (!run) break
+        if (run.status === 'success') {
+          await loadArticle()
+          message.success('稿件已生成')
+          return
+        }
+        if (run.status === 'failed') {
+          const failed = (gr?.steps || []).find((s: any) => s.failure && s.failure.trim())
+          const why = failed?.failure || run?.error_msg || '稿件事校验未通过'
+          message.error(why.length > 500 ? why.slice(0, 500) + '…' : why)
+          return
+        }
+        const active = (gr?.steps || []).filter((s: any) => !s.done)
+        const cur = active[active.length - 1] || (gr?.steps || [])[(gr?.steps || []).length - 1]
+        setGenStepNow(cur?.step_title || '生成中')
+      }
+      // 轮询超时兜底：已过很久仍未完成，提示用户去刷新查看。
+      setGenStepNow('')
     } catch (e: any) {
-      message.error('生成失败: ' + (e.message || ''))
+      message.error('生成失败: ' + (e?.message || ''))
     } finally {
       setGenerating(false)
     }
@@ -377,7 +409,7 @@ export default function WorkspaceDetail() {
               { title: '1 填需求', description: canGen ? '需求已具备' : '还缺：' + (reqMissing.slice(0, 2).join('、') || '需求数据') },
               {
                 title: '2 生成稿件',
-                description: generating ? '正在生成…' : canGen ? '点「生成稿件」，会先去资料里逐句找证据' : '补齐需求后可一键生成',
+                description: generating ? (genStepNow || '正在生成') : canGen ? '点「生成稿件」，会先去资料里逐句找证据' : '补齐需求后可一键生成',
               },
               { title: '3 看稿 / 导出', description: article ? '稿件页签可读正文并导出含证据清单' : '有新稿后去“稿件”页签查看' },
             ]}

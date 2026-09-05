@@ -8,15 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/WWaynee/content-hub/agent"
-	agentcensor "github.com/WWaynee/content-hub/agent/censor"
-	"github.com/WWaynee/content-hub/agent/evidence"
 	"github.com/WWaynee/content-hub/agent/orchestrator"
-	"github.com/WWaynee/content-hub/agent/retrieve"
-	"github.com/WWaynee/content-hub/agent/writing"
 	"github.com/WWaynee/content-hub/api/middleware"
 	"github.com/WWaynee/content-hub/api/response"
 	"github.com/WWaynee/content-hub/api/service"
-	"github.com/WWaynee/content-hub/llmclient"
 	"github.com/WWaynee/content-hub/storage"
 	"github.com/WWaynee/content-hub/storage/model"
 )
@@ -73,64 +68,27 @@ func GenerateArticle(c *gin.Context) {
 	}
 	runID := run.ID
 
-	finishOK := func(verID uint64) {
-		_, _ = storage.AppendStep(c.Request.Context(), runID, model.AgentStep{
-			Role: model.RoleEvidence, Action: "persist_generation_snapshot",
-			Outcome: model.OutcomeAccepted, Decision: "稿件生成完成并落为新版本", RefID: verID})
-		_ = storage.FinishRunOk(c.Request.Context(), runID, verID)
-		storage.UpdateWorkspaceStatus(c.Request.Context(), wid, "generated")
-	}
-	failRun := func(reason string) {
-		_ = storage.FailRun(c.Request.Context(), runID, reason)
-	}
+	// P13：生成主链较长，若整个同步跑完，前端只能看到长时间 loading、不知道进度。
+	// 改为：POST 先快速返回 run_id，由 API 进程内 goroutine 逐阶段把进展落地 agent_steps
+	// + 广播；前端可经 Steps/SSE 实时看到"第几步、发了什么、卡在哪"。
+	launchGenerationBackground(generationTask{
+		RunID:       runID,
+		TenantID:    tenantID,
+		UserID:      userID,
+		WorkspaceID: wid,
+		Requirement: agentReq,
+		FileIDs:     fileIDs,
+		PrevStatus:  prevStatus,
+		// 检索快照/惰性失效锚定到当前需求单版本（P13 后台化后依旧需要）
+		RequirementID:      req.ID,
+		RequirementVersion: req.Version,
+	})
 
-	llm := llmclient.NewClient()
-	checker := agentcensor.NewClaimPlanner(llm, service.NewKbaseSearcher())
-	o := orchestrator.New(retrieve.New(llm), writing.New(llm), evidence.New(), checker).
-		SetFactVerifier(agentcensor.NewFactVerifier(llm))
-	res, err := o.Generate(c.Request.Context(), tenantID, agentReq, fileIDs)
-	if err != nil {
-		restoreWorkspaceStatus(c, wid, prevStatus)
-		failRun(err.Error())
-		var insuff *orchestrator.ErrInsufficientEvidence
-		var factUnsup *orchestrator.ErrFactUnsupported
-		switch {
-		case errors.As(err, &insuff):
-			response.Fail(c, response.CodeServerError, buildNoEvidenceMessage(insuff))
-			return
-		case errors.As(err, &factUnsup):
-			response.Fail(c, response.CodeServerError,
-				"稿件未通过事实校验，部分数据在知识库中无证据支撑，已禁止生成：\n"+buildUnsupportedMessage(factUnsup))
-			return
-		case errors.Is(err, orchestrator.ErrNoEvidence):
-			response.Fail(c, response.CodeServerError,
-				"知识库中未检索到与该需求主题相关的资料，无法生成含具体数据的稿件。请先在知识库补充相关文档资料，或调整需求单内容后重试。")
-			return
-		default:
-			response.ServerError(c, "生成失败："+err.Error())
-			return
-		}
-	}
-
-	// 检索快照落库（供惰性失效判定 + 证据追溯）；失败不阻断主流程
-	if _, berr := service.PersistRetrievalBatch(c.Request.Context(), tenantID, wid, req.ID, req.Version, res.Queries, service.EvidenceToKbaseHits(res.Evidence)); berr != nil {
-		_ = berr
-	}
-
-	verID, err := service.PersistArticleSnapshot(c.Request.Context(), tenantID, wid, res.Article, res.Evidence)
-	if err != nil {
-		restoreWorkspaceStatus(c, wid, prevStatus)
-		failRun(err.Error())
-		if errors.Is(err, service.ErrArticleVersionConflict) {
-			response.Fail(c, response.CodeVersionConflict, service.ErrArticleVersionConflict.Error())
-			return
-		}
-		response.ServerError(c, "稿件落库失败："+err.Error())
-		return
-	}
-	finishOK(verID)
-
-	response.Success(c, gin.H{"article_version_id": verID, "run_id": runID})
+	response.Success(c, gin.H{
+		"run_id":      runID,
+		"status":      "generating",
+		"total_steps": orchestrator.TotalSteps,
+	})
 }
 
 // restoreWorkspaceStatus 生成失败时回退工作区状态（保持可操作，不卡死在 generating）。
