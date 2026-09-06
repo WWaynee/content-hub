@@ -2,11 +2,51 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/WWaynee/content-hub/splitter"
 	"github.com/WWaynee/content-hub/storage/model"
 )
 
 // 切片/句存储层。切片与句都携带版本，旧版本不可检索但原文保留。
+
+// EncodeBm25Tokens 计算文本的 2-gram 词频表并 JSON 编码（P14 混合检索 BM25 稀疏端缓存）。
+// 解析写入与存量补算共用此入口，保证同一内容产出一致 tokens。
+func EncodeBm25Tokens(content string) string {
+	toks := splitter.CharNGramTokens(content, 2)
+	b, err := json.Marshal(toks)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// BackfillBm25Tokens 为存量切片补算 bm25_tokens（P14 migration）：空值行分批处理，
+// 纯本地 n-gram 计算（零 API 成本），返回补算行数。
+func BackfillBm25Tokens(ctx context.Context, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	var total int64
+	for {
+		var list []model.DocChunk
+		if err := GetDB().WithContext(ctx).
+			Where("bm25_tokens IS NULL OR bm25_tokens = ''").
+			Limit(batchSize).Find(&list).Error; err != nil {
+			return total, err
+		}
+		if len(list) == 0 {
+			return total, nil
+		}
+		for i := range list {
+			list[i].Bm25Tokens = EncodeBm25Tokens(list[i].Content)
+		}
+		if err := GetDB().WithContext(ctx).Save(&list).Error; err != nil {
+			return total, err
+		}
+		total += int64(len(list))
+	}
+}
 
 // CreateChunk 写入切片原文（幂等由 (file_id,version_md5,chunk_index) 唯一索引保证）。
 func CreateChunk(ctx context.Context, c *model.DocChunk) error {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -105,6 +106,28 @@ type Retrieval struct {
 	// MinScore 检索相似度阈值：低于该分数的命中判为「不相关」，直接丢弃。
 	// 用于防止把与主题无关的文本（如低相关片段）当作证据返回，进而避免 AI 编造数据。
 	MinScore float32
+
+	// ---- P14 检索质量升级（默认全关 = 保持纯向量检索现状，主流程零风险）----
+	// Strategy 检索排序策略：dense（默认，纯向量）| hybrid（BM25 稀疏 + Dense，RRF 融合）| hybrid_rerank（再叠加 Rerank 精排）。
+	Strategy string
+	// HybridK 混合检索候选池大小（先向量召回 top HybridK，再在池内算 BM25 + RRF）。
+	HybridK int
+	// RRFK RRF（Reciprocal Rank Fusion）的 k 参数。
+	RRFK int
+	// BM25K1 / BM25B BM25 的 k1 / b 参数。
+	BM25K1 float64
+	BM25B  float64
+	// RerankTopN 重排序只精排前 N 个候选（平衡效果与成本）。
+	RerankTopN int
+	// RerankModel 重排序模型名。
+	RerankModel string
+	// RerankBaseURL / RerankAPIKey 重排序服务地址与密钥；为空时回落 Embedding 段（默认同为硅基流动）。
+	RerankBaseURL string
+	RerankAPIKey  string
+	// QueryExpandEnable 是否在 Guardian 首轮检索前用 LLM 把 claim 扩展为多个 query（默认关）。
+	QueryExpandEnable bool
+	// QueryExpandCount 扩展 query 数量（保守默认 3，控制 token 成本）。
+	QueryExpandCount int
 }
 
 type RateLimit struct {
@@ -209,6 +232,18 @@ func Load() (*Config, error) {
 	c.Retrieval = Retrieval{
 		TopK:     envIntDefault("KBE_TOP_K", 20),
 		MinScore: float32(envFloat64Default("KBE_MIN_SCORE", 0.6)),
+		// P14：默认全部关闭，Strategy=dense 即纯向量现状
+		Strategy:           envStr("RETRIEVAL_STRATEGY", "dense"),
+		HybridK:            envIntDefault("RETRIEVAL_HYBRID_K", 50),
+		RRFK:               envIntDefault("RETRIEVAL_RRF_K", 60),
+		BM25K1:             envFloat64Default("RETRIEVAL_BM25_K1", 1.2),
+		BM25B:              envFloat64Default("RETRIEVAL_BM25_B", 0.75),
+		RerankTopN:         envIntDefault("RETRIEVAL_RERANK_TOP_N", 20),
+		RerankModel:        envStr("RETRIEVAL_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+		RerankBaseURL:      envStr("RETRIEVAL_RERANK_BASE_URL", ""),
+		RerankAPIKey:       envStr("RETRIEVAL_RERANK_API_KEY", ""),
+		QueryExpandEnable:  envBoolDefault("RETRIEVAL_QUERY_EXPAND", false),
+		QueryExpandCount:   envIntDefault("RETRIEVAL_QUERY_EXPAND_COUNT", 3),
 	}
 
 	c.RateLimit = RateLimit{
@@ -247,6 +282,19 @@ func envFloat64Default(key string, def float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.ParseFloat(v, 64); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+// envBoolDefault 读取 bool 配置（1/true/yes 为真），其余（含空）回退默认值。
+func envBoolDefault(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		switch strings.ToLower(v) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
 		}
 	}
 	return def

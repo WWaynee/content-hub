@@ -12,6 +12,7 @@ package splitter
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // DefaultSize 单个切片默认软上限（字符数）。可按配置覆盖。
@@ -143,4 +144,37 @@ func assemble(sents []string, title string, size int) []Chunk {
 		chunks = append(chunks, Chunk{Content: strings.Join(cur, ""), ChapterTitle: title})
 	}
 	return chunks
+}
+
+// isTokenRune 判断 rune 是否构成检索 token：汉字/数字/字母保留（政企文本的专有名词
+// 与政策编号都由这些构成），标点与空白一律当作 token 边界（避免 n-gram 跨标点产生噪声 term）。
+func isTokenRune(r rune) bool {
+	return unicode.Is(unicode.Han, r) || unicode.IsDigit(r) || unicode.IsLetter(r)
+}
+
+// CharNGramTokens 把文本切成 n-gram 词频表（term → 出现次数），供 BM25 稀疏检索使用。
+//
+// 中文不做词典分词而是字符 n-gram 的原因（见 P14 §2.1）：
+//   - 政企文档专有名词/政策编号多，词典分词容易 OOV，字符 n-gram 天然覆盖；
+//   - 实现简单可靠、无外部词典依赖；召回时以「片段含多少 n-gram 命中」度量关键词匹配度。
+//
+// 算法：按 token rune（汉字/数字/字母）连续段滑窗；n<=1 时按 2-gram 处理。
+func CharNGramTokens(text string, n int) map[string]int {
+	if n <= 1 {
+		n = 2
+	}
+	tokens := make(map[string]int)
+	// 把 text 按非 token rune 切成连续 token 段
+	for _, seg := range strings.FieldsFunc(text, func(r rune) bool { return !isTokenRune(r) }) {
+		if len(seg) < n {
+			// 不足 n-gram 的短段（如单个数字）整段作为 term
+			tokens[seg]++
+			continue
+		}
+		rs := []rune(seg)
+		for i := 0; i+n <= len(rs); i++ {
+			tokens[string(rs[i:i+n])]++
+		}
+	}
+	return tokens
 }

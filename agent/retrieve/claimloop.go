@@ -6,6 +6,8 @@ import (
 	"github.com/WWaynee/content-hub/agent"
 	"github.com/WWaynee/content-hub/agent/guardian"
 	"github.com/WWaynee/content-hub/api/service"
+	"github.com/WWaynee/content-hub/config"
+	"github.com/WWaynee/content-hub/llmclient"
 )
 
 // claimLoopThinker 给单个未覆盖 claim 换 query 的默认思路（P06）：
@@ -34,9 +36,12 @@ func (t *stagedThinker) call(ctx context.Context, claim string, tried []string) 
 	default:
 		return "", false, nil
 	}
-}// LoopSearchClaim 对单个 claim(文本)执行「可多次换 query 的检索」，返回 Guardian 三态裁决。
+}
+
+// LoopSearchClaim 对单个 claim(文本)执行「可多次换 query 的检索」，返回 Guardian 三态裁决。
 // 这是让检索"覆盖不足会自动换角度、仍不足给缺证而非硬抛"的产品级默认接线（对单点）。
 // ScopeIDs 空=全租户；budget<=0 用默认。
+// P14：Think 按配置选择——RETRIEVAL_QUERY_EXPAND=1 时用 LLM 查询扩展（首轮多表述），否则规则式。
 func LoopSearchClaim(ctx context.Context, tenantID uint64, fileIDs []uint64, claim string, budget int) (*guardian.Decision, error) {
 	if budget <= 0 {
 		budget = defaultBudget
@@ -52,8 +57,16 @@ func LoopSearchClaim(ctx context.Context, tenantID uint64, fileIDs []uint64, cla
 			}
 			return hitsToEvidence2(hits), nil
 		},
-		Think: (&stagedThinker{}).call,
+		Think: pickThinkFn(),
 	})
+}
+
+// pickThinkFn 依据配置选择 Guardian 的 Think 实现（P14 查询扩展开关）。
+func pickThinkFn() guardian.ThinkFn {
+	if config.Get().Retrieval.QueryExpandEnable {
+		return NewLLMQueryThinkFn(llmclient.NewClient(), config.Get().Retrieval.QueryExpandCount)
+	}
+	return StagedThinkFn()
 }
 
 // hitsToEvidence2 复用既有 KbaseHit→agent.Evidence 转换（同 service 内 hitsToEvidence 语义，retrieve 站内避免跨表）。

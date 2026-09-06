@@ -1,0 +1,83 @@
+[
+  {
+    "id": "q01",
+    "query": "2024年全国高考报名人数是多少？",
+    "difficulty": "easy",
+    "category": "数据·报名规模",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 0
+      }
+    ],
+    "notes": "去年招生数据.md §1.1，全国报名人数首段"
+  },
+  {
+    "id": "q05",
+    "query": "平行志愿投档遵循什么原则？",
+    "difficulty": "easy",
+    "category": "录取·投档",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 0
+      }
+    ],
+    "notes": "录取规则.md §1.1 平行志愿投档原则"
+  },
+  {
+    "id": "q09",
+    "query": "随迁子女在流入地参加高考须满足什么条件？",
+    "difficulty": "medium",
+    "category": "报名·条件",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 6
+      },
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 7
+      }
+    ],
+    "notes": "报名条件与流程.md §1.2 随迁子女两条并列条件"
+  },
+  {
+    "id": "q13",
+    "query": "2024年本专科综合录取率大约是多少？",
+    "difficulty": "medium",
+    "category": "数据·录取率",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 13
+      }
+    ],
+    "notes": "去年招生数据.md §2.3 综合录取率（需结合前文招生数，隐含计算）"
+  },
+  {
+    "id": "q17",
+    "query": "2024与2025两年全国高考报名人数分别为多少、哪年是历史峰值？",
+    "difficulty": "hard",
+    "category": "跨文档综合",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 0
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 3
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 4
+      },
+      {
+        "doc": "zhengce_yiju",
+        "sentence_index": 5
+      }
+    ],
+    "notes": "去年招生数据.md §1.1-1.2 与 招生政策依据.md §3.1；需两年数据对比并识别峰值年份"
+  }
+]

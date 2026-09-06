@@ -1,0 +1,322 @@
+[
+  {
+    "id": "q01",
+    "query": "2024年全国高考报名人数是多少？",
+    "difficulty": "easy",
+    "category": "数据·报名规模",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 0
+      }
+    ],
+    "notes": "去年招生数据.md §1.1，全国报名人数首段"
+  },
+  {
+    "id": "q02",
+    "query": "2025年高考报名总人数是多少？",
+    "difficulty": "easy",
+    "category": "数据·报名规模",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 3
+      },
+      {
+        "doc": "zhengce_yiju",
+        "sentence_index": 5
+      }
+    ],
+    "notes": "去年招生数据.md §1.2 与 招生政策依据.md §3.1 同源重复，跨文档定位"
+  },
+  {
+    "id": "q03",
+    "query": "高考报名一般需要提交哪些材料？",
+    "difficulty": "easy",
+    "category": "报名·材料",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 27
+      },
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 28
+      },
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 29
+      }
+    ],
+    "notes": "报名条件与流程.md §2.3 材料清单（引导句与第 1 条因无句末标点合并为一句）"
+  },
+  {
+    "id": "q04",
+    "query": "高考报名时间一般在什么时候？",
+    "difficulty": "easy",
+    "category": "报名·时间",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 24
+      }
+    ],
+    "notes": "报名条件与流程.md §2.2 报名时间"
+  },
+  {
+    "id": "q05",
+    "query": "平行志愿投档遵循什么原则？",
+    "difficulty": "easy",
+    "category": "录取·投档",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 0
+      }
+    ],
+    "notes": "录取规则.md §1.1 平行志愿投档原则"
+  },
+  {
+    "id": "q06",
+    "query": "烈士子女高考能加多少分？",
+    "difficulty": "easy",
+    "category": "加分政策",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 40
+      }
+    ],
+    "notes": "录取规则.md §4.1 全国性加分第 1 条"
+  },
+  {
+    "id": "q07",
+    "query": "艺术类录取控制分数线有什么要求？",
+    "difficulty": "easy",
+    "category": "特殊类型",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 60
+      }
+    ],
+    "notes": "录取规则.md §5.3 艺术类录取控制线"
+  },
+  {
+    "id": "q08",
+    "query": "全国高考统考什么时候开始？",
+    "difficulty": "easy",
+    "category": "考试日程",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 17
+      }
+    ],
+    "notes": "去年招生数据.md §3.1 统考开始时间"
+  },
+  {
+    "id": "q09",
+    "query": "随迁子女在流入地参加高考须满足什么条件？",
+    "difficulty": "medium",
+    "category": "报名·条件",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 6
+      },
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 7
+      }
+    ],
+    "notes": "报名条件与流程.md §1.2 随迁子女两条并列条件"
+  },
+  {
+    "id": "q10",
+    "query": "哪些人不得报名参加高考？",
+    "difficulty": "medium",
+    "category": "报名·条件",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 9
+      },
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 12
+      }
+    ],
+    "notes": "报名条件与流程.md §1.3 不得报名情形（第 1、4 条）"
+  },
+  {
+    "id": "q11",
+    "query": "高校专业录取的分数优先规则具体怎么执行？",
+    "difficulty": "medium",
+    "category": "录取·专业规则",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 24
+      }
+    ],
+    "notes": "录取规则.md §3.1 分数优先（分数清）执行方式"
+  },
+  {
+    "id": "q12",
+    "query": "什么是专业级差？",
+    "difficulty": "medium",
+    "category": "录取·专业规则",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 32
+      }
+    ],
+    "notes": "录取规则.md §3.3 专业级差定义"
+  },
+  {
+    "id": "q13",
+    "query": "2024年本专科综合录取率大约是多少？",
+    "difficulty": "medium",
+    "category": "数据·录取率",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 13
+      }
+    ],
+    "notes": "去年招生数据.md §2.3 综合录取率（需结合前文招生数，隐含计算）"
+  },
+  {
+    "id": "q14",
+    "query": "高考加分政策对少数民族考生有什么规定？",
+    "difficulty": "medium",
+    "category": "加分政策",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 45
+      }
+    ],
+    "notes": "录取规则.md §4.2 地方性加分·少数民族条目"
+  },
+  {
+    "id": "q15",
+    "query": "考生填报的报名信息怎样才算有效？",
+    "difficulty": "medium",
+    "category": "报名·流程",
+    "relevant": [
+      {
+        "doc": "baoming_tiaojian",
+        "sentence_index": 22
+      }
+    ],
+    "notes": "报名条件与流程.md §2.1 末尾：资格审核贯穿全程、确认后有效"
+  },
+  {
+    "id": "q16",
+    "query": "普通高校招生录取按哪些批次进行？",
+    "difficulty": "medium",
+    "category": "录取·批次",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 10
+      },
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 11
+      },
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 13
+      }
+    ],
+    "notes": "录取规则.md §2.1 录取批次列表（提前批/本科批/高职专科批）"
+  },
+  {
+    "id": "q17",
+    "query": "2024与2025两年全国高考报名人数分别为多少、哪年是历史峰值？",
+    "difficulty": "hard",
+    "category": "跨文档综合",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 0
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 3
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 4
+      },
+      {
+        "doc": "zhengce_yiju",
+        "sentence_index": 5
+      }
+    ],
+    "notes": "去年招生数据.md §1.1-1.2 与 招生政策依据.md §3.1；需两年数据对比并识别峰值年份"
+  },
+  {
+    "id": "q18",
+    "query": "全国高等教育在学总规模与毛入学率在2024年分别是多少？",
+    "difficulty": "hard",
+    "category": "跨文档综合",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 11
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 15
+      },
+      {
+        "doc": "zhengce_yiju",
+        "sentence_index": 8
+      }
+    ],
+    "notes": "去年招生数据.md §2.2-2.3 与 招生政策依据.md §3.2；同数据两处出现需综合"
+  },
+  {
+    "id": "q19",
+    "query": "考生被退档的常见原因中哪些与分数直接相关？",
+    "difficulty": "hard",
+    "category": "录取·退档",
+    "relevant": [
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 62
+      },
+      {
+        "doc": "luqu_guize",
+        "sentence_index": 64
+      }
+    ],
+    "notes": "录取规则.md §6.1 退档原因中与分数相关的第 1、3 条（需筛选推理）"
+  },
+  {
+    "id": "q20",
+    "query": "要写一篇2024年招生规模与结构的汇报应引用哪些本专科招生数字？",
+    "difficulty": "hard",
+    "category": "跨文档综合",
+    "relevant": [
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 6
+      },
+      {
+        "doc": "zhaosheng_shuju",
+        "sentence_index": 10
+      },
+      {
+        "doc": "zhengce_yiju",
+        "sentence_index": 10
+      }
+    ],
+    "notes": "去年招生数据.md §2.1-2.2 与 招生政策依据.md §3.3；本专科招生数字跨文档汇总"
+  }
+]

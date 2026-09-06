@@ -66,6 +66,8 @@ func ProcessDocument(ctx context.Context, tenantID, fileID, versionID uint64) er
 			ChunkIndex:   i,
 			ChapterTitle: c.ChapterTitle,
 			Content:      c.Content,
+			// P14：解析时预计算 n-gram 词频表（本地计算，供混合检索 BM25 复用）
+			Bm25Tokens: storage.EncodeBm25Tokens(c.Content),
 		})
 		// 句子切分，累计切片内偏移
 		sents := splitter.Sentences(c.Content)

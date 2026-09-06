@@ -33,6 +33,8 @@
 | P10 | draft_assist(拿样稿起稿)并入轨 | rev-4 §13.5 / W5 | P09,P04 | requirement/REST,splitter 复用 |
 | P11 | 稿件结构化渲染 + 证据 tooltip + 版链提示 | rev-2 §9.1/§9.2, rev-4 W6 | P03,P04,P09 | `web` 稿件 view/详情 |
 | P12 | workspace 状态机 UX + 对话"人话"结果 + 可生成硬前置 | rev-4 §13.2/§13.4 / W2/W4 | P06 | `web`,workspace/requirements 状态 |
+| P13 | 生成进度流式推送（run 状态广播 + SSE + 断线补发） | 追加包（超原 RFC） | P05 | `agent/progress`,`web` 进度视图 |
+| P14 | 检索质量升级（混合检索/Rerank/查询扩展 + 评测基准） | 追加包（超原 RFC） | — | `api/service/kbase_strategy.go`,`llmclient/rerank.go`,`agent/retrieve/eval` |
 
 > **注**
 > - P03 会同时修正旧历史快照问题（一次批处理降级 vs 重建）——详见包内"兼容/旧数据"。

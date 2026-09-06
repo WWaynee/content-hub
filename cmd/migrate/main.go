@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"log"
 
@@ -10,6 +12,9 @@ import (
 )
 
 func main() {
+	backfillBM25 := flag.Bool("backfill-bm25", false, "P14：为存量切片补算 bm25_tokens（本地 n-gram，零 API 成本）")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
@@ -57,6 +62,15 @@ func main() {
 		log.Fatalf("AutoMigrate 失败: %v", err)
 	}
 	fmt.Println("迁移完成：表已建/已同步。")
+
+	// P14：存量切片补算 bm25_tokens（本地 n-gram，按批处理；新解析的文档解析时已写入）
+	if *backfillBM25 {
+		n, err := storage.BackfillBm25Tokens(context.Background(), 500)
+		if err != nil {
+			log.Fatalf("补算 bm25_tokens 失败: %v", err)
+		}
+		fmt.Printf("已补算 bm25_tokens：%d 个切片。\n", n)
+	}
 
 	// 列出实际表验证
 	var tables []string

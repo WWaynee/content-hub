@@ -60,16 +60,19 @@ func (DocVersion) TableName() string { return "doc_versions" }
 
 // DocChunk 文档切片（原文，去重）
 type DocChunk struct {
-	ID          uint64    `gorm:"column:id;primaryKey;autoIncrement"`
-	TenantID    uint64    `gorm:"column:tenant_id;not null"`
-	FileID      uint64    `gorm:"column:file_id;not null;uniqueIndex:idx_file_version_chunk"`
-	VersionMd5  string    `gorm:"column:version_md5;size:64;not null;uniqueIndex:idx_file_version_chunk"`
-	ChunkIndex  int       `gorm:"column:chunk_index;not null;uniqueIndex:idx_file_version_chunk"`
-	ChapterTitle string   `gorm:"column:chapter_title;size:256"` // 提取不到留空
-	Content     string    `gorm:"column:content;type:longtext"`  // 切片原文（~300 字，完整句末截断）
-	StartChar   int       `gorm:"column:start_char;default:0"`
-	EndChar     int       `gorm:"column:end_char;default:0"`
-	CreatedAt   time.Time `gorm:"column:created_at;type:datetime(3)"`
+	ID           uint64    `gorm:"column:id;primaryKey;autoIncrement"`
+	TenantID     uint64    `gorm:"column:tenant_id;not null"`
+	FileID       uint64    `gorm:"column:file_id;not null;uniqueIndex:idx_file_version_chunk"`
+	VersionMd5   string    `gorm:"column:version_md5;size:64;not null;uniqueIndex:idx_file_version_chunk"`
+	ChunkIndex   int       `gorm:"column:chunk_index;not null;uniqueIndex:idx_file_version_chunk"`
+	ChapterTitle string    `gorm:"column:chapter_title;size:256"` // 提取不到留空
+	Content      string    `gorm:"column:content;type:longtext"`  // 切片原文（~300 字，完整句末截断）
+	StartChar    int       `gorm:"column:start_char;default:0"`
+	EndChar      int       `gorm:"column:end_char;default:0"`
+	// Bm25Tokens 该切片的 n-gram 词频表（JSON：term→次数），文档解析时预计算、检索 BM25 复用。
+	// P14 混合检索第一版在 Go 端做候选池 BM25，此字段是纯本地计算的缓存，不参与向量。
+	Bm25Tokens string    `gorm:"column:bm25_tokens;type:mediumtext"`
+	CreatedAt  time.Time `gorm:"column:created_at;type:datetime(3)"`
 }
 
 func (DocChunk) TableName() string { return "doc_chunks" }
