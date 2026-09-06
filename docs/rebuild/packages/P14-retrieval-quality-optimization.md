@@ -397,7 +397,7 @@ go test -tags=integration ./agent/retrieve/eval/ -run TestAllStrategiesCompariso
 | + Hybrid + Rerank | **+30.4pp** | +9.0pp | +0.241 | +0.269 |
 | + Hybrid + Rerank + QueryExpand | +30.4pp | +9.0pp | +0.241 | +0.269 |
 
-**实测结论（写进简历/面试用）**
+**实测结论**
 
 1. **混合检索（BM25 2-gram + Dense，RRF 融合）是本轮提升主力**：Recall@5 0.583 → 0.867（+28pp），远超任务书 §3.4 预期的 +12pp。政企 query 的关键词（政策编号/日期/专名）通常横跨多个相关切片，向量漏召回的部分由 BM25 补齐并在 RRF 前移。
 2. **Rerank（bge-reranker-v2-m3）进一步把排序质量推向高位**：MRR 0.659→0.900、NDCG@5 0.570→0.839，Recall@10 达 0.983（接近"能搜全"）。
@@ -551,16 +551,13 @@ go test -tags=integration ./agent/retrieve/eval/ -run TestAllStrategiesCompariso
 
 ---
 
-## 6. 简历可用的量化数据（本包已完成，实测）
+## 6. 量化结论（实测口径）
 
-完成本包后，简历上可以写（实测口径，见 §3.5；句子级检索，评测集 20 query × easy/medium/hard）：
+三层检索质量优化体系（BM25 混合检索 + Rerank + 查询扩展，策略化配置、主流程默认零风险）在自建评测基准（20 query × 3 难度，真实政企语料）上的实测提升：
 
-> 设计并实现了三层检索质量优化体系（BM25 混合检索 + Rerank + 查询扩展，策略化配置、主流程默认零风险），在自建评测基准（20 query × 3 难度，真实政企语料）上：
-> - **Recall@5 从 0.58 提升至 0.89（+30pp）**；NDCG@5 从 0.57 提升至 0.84（+47%）
-> - 混合检索（BM25 2-gram + Dense + RRF）单层即 +28pp Recall@5；Rerank 再把 MRR 0.66→0.90
-> - 全链路可复现：`go test -tags=integration ./agent/retrieve/eval/` 一键复跑对比表
-
-> 简历措辞与面试话术模板见 `docs/resume-packaging.md`（P14 小节已按实测更新）。
+- **Recall@5 从 0.58 提升至 0.89（+30pp）**；NDCG@5 从 0.57 提升至 0.84（+47%）
+- 混合检索（BM25 2-gram + Dense + RRF）单层即 +28pp Recall@5；Rerank 再把 MRR 0.66→0.90
+- 全链路可复现：`go test -tags=integration ./agent/retrieve/eval/` 一键复跑对比表（含 20 条 query 与 sanity 集）
 
 ---
 
