@@ -4,7 +4,8 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 120000,
+  // 同步生成一次稿需多次 LLM/检索，放宽到 300s 以免被请求端过早掐断（P05 若转异步可再收窄）
+  timeout: 300000,
 })
 
 // 请求拦截：注入 token

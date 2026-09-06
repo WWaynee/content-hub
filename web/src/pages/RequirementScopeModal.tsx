@@ -80,15 +80,56 @@ export default function RequirementScopeModal({ open, requirementId, onClose, on
   }, [data, tab])
 
   // antd Tree 事件回调的参数带其内部 Key 类型，这里宽松接收并按需转字符串
-  const onCheck = (keys: unknown) => {
-    const arr = keys as (string | number | { checked: unknown })[]
-    // checkStrictly 下返回纯数组；防御个别形态返回对象
-    const list = Array.isArray(arr) ? arr : []
-    setChecked((pre) => ({ ...pre, [tab]: (list as (string | number)[]).map(String) }))
-  }
   const onExpand = (keys: unknown) => {
     const arr = keys as (string | number)[]
     setExpanded((pre) => ({ ...pre, [tab]: Array.isArray(arr) ? arr.map(String) : [] }))
+  }
+
+  // 行点击也触发勾选：点某个节点 → 勾选/取消该节点及其整个子树（目录=含子，文件=自身）。
+  // 与 checkbox 等同工作，避免只在复选小组件上点不着的问题。
+  const onRowToggle = (_sel: unknown, info: { node?: { key?: unknown } }) => {
+    const key = String(info?.node?.key ?? '')
+    if (!key) return
+    const scope = data[tab]
+    if (!scope) return
+    const toggled = new Set([key])
+    const collectUnder = (dirId: string | number) => {
+      scope.dirs.forEach((d) => {
+        if (String(d.parent_id) === String(dirId)) {
+          const dk = `d_${d.id}`
+          toggled.add(dk)
+          // 目录下的文件
+          scope.files.forEach((f) => {
+            if (String(f.dir_id) === String(d.id)) toggled.add(`f_${f.id}`)
+          })
+          collectUnder(d.id)
+        }
+      })
+    }
+    if (key.startsWith('d_')) {
+      const dirId = key.slice(2)
+      // 当前目录的直接文件 + 递归子目录
+      scope.files.forEach((f) => {
+        if (String(f.dir_id) === String(dirId)) toggled.add(`f_${f.id}`)
+      })
+      collectUnder(dirId)
+    }
+    const wasOn = (checked[tab] || []).includes(key)
+    setChecked((pre) => {
+      const cur = new Set(pre[tab] || [])
+      for (const k of toggled) {
+        if (wasOn) cur.delete(k)
+        else cur.add(k)
+      }
+      return { ...pre, [tab]: Array.from(cur) }
+    })
+    // 让目录展开，便于看到勾选结果
+    if (key.startsWith('d_')) {
+      setExpanded((pre) => ({
+        ...pre,
+        [tab]: Array.from(new Set([...(pre[tab] || []), key])),
+      }))
+    }
   }
 
   const doSave = async () => {
@@ -107,7 +148,8 @@ export default function RequirementScopeModal({ open, requirementId, onClose, on
         })
       })
       await api.put(`/requirements/${requirementId}/scope`, { scopes })
-      message.success('引用范围已保存')
+      // 空数组=清空范围（不限定）：后端按"全库可访问资料"处理，不是没生效。
+      message.success(scopes.length === 0 ? '已保存：未限定引用范围，生成时将检索全部可访问资料' : '引用范围已保存')
       onSaved()
       onClose()
     } catch (e: any) {
@@ -143,23 +185,26 @@ export default function RequirementScopeModal({ open, requirementId, onClose, on
           ]}
         />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          两个库可分别勾选、互不影响，可同时保存。勾选目录表示引用该目录及其下所有文件（含子目录）；也可展开目录精确勾选单个文件。
+          两个库可分别勾选、互不影响，可同时保存。点击目录或文件所在行即可选中/取消；点目录会连同其下所有文件一并选中。
           {tab === 'private' ? '【当前正在配置：私有库】' : '【当前正在配置：公有库】'}
+          {` · 已选 ${(checked[tab] || []).length} 项`}
+        </Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          提示：什么都不勾选直接保存即可——此时不限定范围，生成/对话时在该工作区可访问的资料（本账号私有 + 公有）里全库检索。
         </Typography.Text>
         <div style={{ maxHeight: 420, overflow: 'auto', border: '1px solid var(--panel-border)', borderRadius: 8, padding: 8 }}>
           {treeNodes.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该库暂无内容" />
           ) : (
             <Tree
-              checkable
-              selectable={false}
+              selectable
+              multiple
               onExpand={onExpand}
               expandedKeys={expanded[tab] || []}
-              checkedKeys={checked[tab] || []}
-              onCheck={onCheck}
+              selectedKeys={checked[tab] || []}
+              onSelect={onRowToggle}
               treeData={treeNodes}
               showIcon
-              checkStrictly
             />
           )}
         </div>
