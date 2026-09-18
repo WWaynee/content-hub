@@ -561,7 +561,7 @@ go test -tags=integration ./agent/retrieve/eval/ -run TestAllStrategiesCompariso
 
 ---
 
-## 7. 开放问题
+## 7. 开放问题（待解决）
 
 | 问题 | 实测/建议 | 影响 |
 |------|------|------|
